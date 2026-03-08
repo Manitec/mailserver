@@ -480,7 +480,7 @@ def add_user(request: Request, username: str = Form(...), password: str = Form(.
              account_key: str = Form(...), email: str = Form(...)):
     # Check if requester is admin (first user)
     current = get_current_user(request)
-    if current["id"] != 1:  # Only user ID 1 (first user) is admin
+    if current["id"] != 2:  # Only user ID 2 is admin
         raise HTTPException(status_code=403, detail="Admin only")
     
     # Add new user to DB
