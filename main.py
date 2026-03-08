@@ -237,6 +237,198 @@ LOGIN_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+@app.get("/admin")
+def admin_page():
+    """Simple web admin interface to add users"""
+    return HTMLResponse(content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Add User | Mail360</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f1f5f9;
+        }
+        .container {
+            background: #334155;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            width: 100%;
+            max-width: 450px;
+            border: 1px solid #475569;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 24px;
+            color: #3b82f6;
+            font-size: 24px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #e2e8f0;
+        }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #f1f5f9;
+            font-size: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+        .success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            color: #10b981;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #94a3b8;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link:hover {
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👤 Add New User</h1>
+        <div id="success" class="success">User created successfully!</div>
+        <div id="error" class="error"></div>
+        <form id="addUserForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required placeholder="john.doe">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Secure password">
+            </div>
+            <div class="form-group">
+                <label for="account_key">Mail360 Account Key</label>
+                <input type="text" id="account_key" name="account_key" required placeholder="e.g., AbC123XyZ789">
+            </div>
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required placeholder="john@manitec.pw">
+            </div>
+            <button type="submit">➕ Create User</button>
+        </form>
+        <a href="/" class="back-link">← Back to Mail</a>
+    </div>
+
+    <script>
+        document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('username', document.getElementById('username').value);
+            formData.append('password', document.getElementById('password').value);
+            formData.append('account_key', document.getElementById('account_key').value);
+            formData.append('email', document.getElementById('email').value);
+            
+            document.getElementById('success').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                const resp = await fetch('/admin/add-user', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (resp.ok) {
+                    document.getElementById('success').style.display = 'block';
+                    document.getElementById('addUserForm').reset();
+                } else {
+                    const err = await resp.text();
+                    document.getElementById('error').textContent = 'Error: ' + err;
+                    document.getElementById('error').style.display = 'block';
+                }
+            } catch (err) {
+                document.getElementById('error').textContent = 'Error: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>""")
+
+@app.post("/admin/add-user")
+def add_user(request: Request, username: str = Form(...), password: str = Form(...), 
+             account_key: str = Form(...), email: str = Form(...)):
+    # Only logged-in users can add new users (simple security)
+    # You could restrict to just user ID 1 (first user) if you want:
+     current = get_current_user(request)
+     if current["id"] != 2:
+         raise HTTPException(status_code=403, detail="Admin only")
+     conn = sqlite3.connect(DB_PATH)
+     cur = conn.cursor()
+     try:
+        cur.execute(
+            "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), account_key, email),
+        )
+        conn.commit()
+        return {"status": "user created", "username": username, "email": email}
+     except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Username already exists")
+     finally:
+       conn.close()
 @app.get("/debug/user")
 def debug_user(request: Request):
     try:
@@ -282,6 +474,29 @@ def do_login(username: str = Form(...), password: str = Form(...)):
         max_age=86400
     )
     return response
+
+@app.post("/admin/add-user")
+def add_user(request: Request, username: str = Form(...), password: str = Form(...), 
+             account_key: str = Form(...), email: str = Form(...)):
+    # Check if requester is admin (first user)
+    current = get_current_user(request)
+    if current["id"] != 1:  # Only user ID 1 (first user) is admin
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Add new user to DB
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), account_key, email),
+        )
+        conn.commit()
+        return {"status": "user created"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Username exists")
+    finally:
+        conn.close()
 
 
 @app.get("/logout")
