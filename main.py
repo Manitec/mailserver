@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
@@ -10,6 +11,9 @@ import secrets
 import sqlite3
 import hashlib
 
+from middleware import RateLimitMiddleware
+from validators import is_valid_email, sanitize_input, is_strong_password
+
 # Load credentials
 load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -17,13 +21,14 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
 BASE_URL = "https://mail360.zoho.com"
-DB_PATH = "users.db"
+DB_PATH = os.getenv("DB_PATH", "users.db")
 
-app = FastAPI()
+app = FastAPI(title="Manitec Mail")
 
 # Session storage: token -> user_id
 active_sessions: dict[str, int] = {}
 
+# CORS (relaxed; you can tighten allow_origins later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,6 +36,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting: 100 requests per 60 seconds per IP
+app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
+
+# Restrict allowed hosts (update Render host below)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=[
+        "localhost",
+        "127.0.0.1",
+        "mail.manitec.pw",
+        "mailserver-gjlu.onrender.com/",  # REPLACE with your actual Render host
+        "*.onrender.com",
+    ],
+)
+
+# Static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -54,48 +75,53 @@ def hash_password(password: str) -> str:
 def get_user_by_username(username: str):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT id, username, password_hash, account_key, from_address FROM users WHERE username = ?", (username,))
+    cur.execute(
+        "SELECT id, username, password_hash, account_key, from_address "
+        "FROM users WHERE username = ?",
+        (username,),
+    )
     row = cur.fetchone()
     conn.close()
     if not row:
         return None
-    return {"id": row[0], "username": row[1], "password_hash": row[2], "account_key": row[3], "from_address": row[4]}
+    return {
+        "id": row[0],
+        "username": row[1],
+        "password_hash": row[2],
+        "account_key": row[3],
+        "from_address": row[4],
+    }
 
 
 def get_user_by_id(user_id: int):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT id, username, password_hash, account_key, from_address FROM users WHERE id = ?", (user_id,))
+    cur.execute(
+        "SELECT id, username, password_hash, account_key, from_address "
+        "FROM users WHERE id = ?",
+        (user_id,),
+    )
     row = cur.fetchone()
     conn.close()
     if not row:
         return None
-    return {"id": row[0], "username": row[1], "password_hash": row[2], "account_key": row[3], "from_address": row[4]}
+    return {
+        "id": row[0],
+        "username": row[1],
+        "password_hash": row[2],
+        "account_key": row[3],
+        "from_address": row[4],
+    }
 
 
 def get_current_user(request: Request):
     session_token = request.cookies.get("session")
-    print(f"\n=== AUTH CHECK ===")
-    print(f"Cookie token: {session_token[:20] if session_token else 'None'}...")
-    print(f"Active sessions count: {len(active_sessions)}")
-    
-    if not session_token:
-        print("No session cookie!")
+    if not session_token or session_token not in active_sessions:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    if session_token not in active_sessions:
-        print(f"Token not in active_sessions!")
-        print(f"Available keys: {list(active_sessions.keys())[:3]}")
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
     user_id = active_sessions[session_token]
     user = get_user_by_id(user_id)
-    
     if not user:
-        print(f"User ID {user_id} not found in DB!")
         raise HTTPException(status_code=401, detail="User not found")
-    
-    print(f"Authenticated as: {user['username']}")
     return user
 
 
@@ -112,10 +138,10 @@ def get_access_token() -> str:
 
 
 LOGIN_HTML = """<!DOCTYPE html>
-<html lang="en">
+<html lang=\"en\">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>Login - Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -194,22 +220,22 @@ LOGIN_HTML = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-header">
+    <div class=\"login-container\">
+        <div class=\"login-header\">
             <h1>📧 Manitec Mail</h1>
             <p>Email Client Login</p>
         </div>
-        <div id="error" class="error">Invalid username or password</div>
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input id="username" name="username" required autofocus>
+        <div id=\"error\" class=\"error\">Invalid username or password</div>
+        <form id=\"loginForm\">
+            <div class=\"form-group\">
+                <label for=\"username\">Username</label>
+                <input id=\"username\" name=\"username\" required autofocus>
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+            <div class=\"form-group\">
+                <label for=\"password\">Password</label>
+                <input type=\"password\" id=\"password\" name=\"password\" required>
             </div>
-            <button type="submit">Login</button>
+            <button type=\"submit\">Login</button>
         </form>
     </div>
     <script>
@@ -237,15 +263,188 @@ LOGIN_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+
+@app.get("/login")
+def login_page():
+    return HTMLResponse(content=LOGIN_HTML)
+
+
+@app.post("/login")
+def do_login(username: str = Form(...), password: str = Form(...)):
+    username_clean = sanitize_input(username, max_length=64).lower()
+    user = get_user_by_username(username_clean)
+    if not user or user["password_hash"] != hash_password(password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    session_token = secrets.token_urlsafe(32)
+    active_sessions[session_token] = user["id"]
+
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(
+        key="session",
+        value=session_token,
+        httponly=True,
+        secure=False,  # set True behind HTTPS
+        samesite="lax",
+        max_age=86400,
+    )
+    return response
+
+
+@app.get("/logout")
+def logout(request: Request):
+    session_token = request.cookies.get("session")
+    if session_token in active_sessions:
+        del active_sessions[session_token]
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("session")
+    return response
+
+
+@app.get("/")
+def read_root(request: Request):
+    session_token = request.cookies.get("session")
+    if not session_token or session_token not in active_sessions:
+        return RedirectResponse(url="/login", status_code=302)
+    return FileResponse("static/index.html")
+
+
+@app.get("/me")
+def get_me(request: Request):
+    user = get_current_user(request)
+    return {"username": user["username"], "email": user["from_address"]}
+
+
+@app.get("/inbox")
+def get_inbox(request: Request, limit: int = 10):
+    user = get_current_user(request)
+    token = get_access_token()
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    params = {"searchKey": "in:inbox", "limit": limit}
+    resp = httpx.get(url, headers=headers, params=params)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+@app.get("/message/{message_id}")
+def get_message_content(request: Request, message_id: str):
+    user = get_current_user(request)
+    token = get_access_token()
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}/content"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    params = {"includeBlockContent": "true"}
+    resp = httpx.get(url, headers=headers, params=params)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+@app.post("/send")
+def send_email(request: Request, req: SendRequest):
+    user = get_current_user(request)
+    token = get_access_token()
+
+    to_addr = sanitize_input(req.to, max_length=320)
+    subject = sanitize_input(req.subject, max_length=255)
+    content = sanitize_input(req.content, max_length=10000)
+
+    if not is_valid_email(to_addr):
+        raise HTTPException(status_code=400, detail="Invalid recipient email")
+
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    payload = {
+        "fromAddress": user["from_address"],
+        "toAddress": to_addr,
+        "subject": subject,
+        "content": content,
+        "mailFormat": "plaintext",
+    }
+    resp = httpx.post(url, headers=headers, json=payload)
+    if resp.status_code in (200, 201, 202):
+        return {"status": "sent"}
+    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+
+@app.delete("/message/{message_id}")
+def delete_message(request: Request, message_id: str):
+    user = get_current_user(request)
+    token = get_access_token()
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    resp = httpx.delete(url, headers=headers)
+    resp.raise_for_status()
+    return {"status": "deleted"}
+
+
+@app.post("/reply/{message_id}")
+def reply_to_message(request: Request, message_id: str, req: SendRequest):
+    user = get_current_user(request)
+    token = get_access_token()
+
+    to_addr = sanitize_input(req.to, max_length=320)
+    subject = sanitize_input(req.subject, max_length=255)
+    content = sanitize_input(req.content, max_length=10000)
+
+    if not is_valid_email(to_addr):
+        raise HTTPException(status_code=400, detail="Invalid recipient email")
+
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    payload = {
+        "action": "reply",
+        "fromAddress": user["from_address"],
+        "toAddress": to_addr,
+        "subject": subject,
+        "content": content,
+        "mailFormat": "plaintext",
+    }
+    resp = httpx.post(url, headers=headers, json=payload)
+    if resp.status_code in (200, 201, 202):
+        return {"status": "sent"}
+    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+
+@app.post("/forward")
+def forward_message(request: Request, req: ForwardRequest):
+    user = get_current_user(request)
+    token = get_access_token()
+
+    to_addr = sanitize_input(req.to, max_length=320)
+    subject = sanitize_input(req.subject, max_length=255)
+    content = sanitize_input(req.content, max_length=8000)
+    original_content = sanitize_input(req.original_content, max_length=8000)
+
+    if not is_valid_email(to_addr):
+        raise HTTPException(status_code=400, detail="Invalid recipient email")
+
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+
+    full_content = f"{content}\n\n--- Forwarded message ---\n{original_content}"
+
+    payload = {
+        "fromAddress": user["from_address"],
+        "toAddress": to_addr,
+        "subject": subject,
+        "content": full_content,
+        "mailFormat": "plaintext",
+    }
+    resp = httpx.post(url, headers=headers, json=payload)
+    if resp.status_code in (200, 201, 202):
+        return {"status": "sent"}
+    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+
 @app.get("/admin")
 def admin_page():
-    """Simple web admin interface to add users"""
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html lang="en">
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang=\"en\">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Add User | Manitec</title>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Admin - Add User | Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -346,51 +545,51 @@ def admin_page():
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class=\"container\">
         <h1>👤 Add New User</h1>
-        <div id="success" class="success">User created successfully!</div>
-        <div id="error" class="error"></div>
-        <form id="addUserForm">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required placeholder="john.doe">
+        <div id=\"success\" class=\"success\">User created successfully!</div>
+        <div id=\"error\" class=\"error\"></div>
+        <form id=\"addUserForm\">
+            <div class=\"form-group\">
+                <label for=\"username\">Username</label>
+                <input type=\"text\" id=\"username\" name=\"username\" required placeholder=\"john.doe\">
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required placeholder="Secure password">
+            <div class=\"form-group\">
+                <label for=\"password\">Password</label>
+                <input type=\"password\" id=\"password\" name=\"password\" required placeholder=\"Secure password\">
             </div>
-            <div class="form-group">
-                <label for="account_key">Manitec Account Key</label>
-                <input type="text" id="account_key" name="account_key" required placeholder="e.g., AbC123XyZ789">
+            <div class=\"form-group\">
+                <label for=\"account_key\">Mail360 Account Key</label>
+                <input type=\"text\" id=\"account_key\" name=\"account_key\" required placeholder=\"e.g., AbC123XyZ789\">
             </div>
-            <div class="form-group">
-                <label for="email">Email Address</label>
-                <input type="email" id="email" name="email" required placeholder="john@manitec.pw">
+            <div class=\"form-group\">
+                <label for=\"email\">Email Address</label>
+                <input type=\"email\" id=\"email\" name=\"email\" required placeholder=\"john@manitec.pw\">
             </div>
-            <button type="submit">➕ Create User</button>
+            <button type=\"submit\">➕ Create User</button>
         </form>
-        <a href="/" class="back-link">← Back to Mail</a>
+        <a href=\"/\" class=\"back-link\">← Back to Mail</a>
     </div>
 
     <script>
         document.getElementById('addUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const formData = new FormData();
             formData.append('username', document.getElementById('username').value);
             formData.append('password', document.getElementById('password').value);
             formData.append('account_key', document.getElementById('account_key').value);
             formData.append('email', document.getElementById('email').value);
-            
+
             document.getElementById('success').style.display = 'none';
             document.getElementById('error').style.display = 'none';
-            
+
             try {
                 const resp = await fetch('/admin/add-user', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (resp.ok) {
                     document.getElementById('success').style.display = 'block';
                     document.getElementById('addUserForm').reset();
@@ -406,17 +605,59 @@ def admin_page():
         });
     </script>
 </body>
-</html>""")
+</html>"""
+    )
+
+
+@app.post("/admin/add-user")
+def add_user(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    account_key: str = Form(...),
+    email: str = Form(...),
+):
+    # Only first user (ID 1) is admin
+    current = get_current_user(request)
+    if current["id"] != 1:
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    username_clean = sanitize_input(username, max_length=64).lower()
+    account_key_clean = sanitize_input(account_key, max_length=128)
+    email_clean = sanitize_input(email, max_length=255)
+
+    if not is_valid_email(email_clean):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    ok, msg = is_strong_password(password)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO users (username, password_hash, account_key, from_address) "
+            "VALUES (?, ?, ?, ?)",
+            (username_clean, hash_password(password), account_key_clean, email_clean),
+        )
+        conn.commit()
+        return {"status": "user created", "username": username_clean, "email": email_clean}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    finally:
+        conn.close()
+
 
 @app.get("/settings")
 def settings_page():
-    """User settings page to change password"""
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html lang="en">
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang=\"en\">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings - Change Password | Mail360</title>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Settings - Change Password | Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -526,60 +767,59 @@ def settings_page():
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class=\"container\">
         <h1>⚙️ Change Password</h1>
-        <div class="warning">You must know your current password to change it.</div>
-        <div id="success" class="success">Password changed successfully!</div>
-        <div id="error" class="error"></div>
-        <form id="changePasswordForm">
-            <div class="form-group">
-                <label for="current_password">Current Password</label>
-                <input type="password" id="current_password" name="current_password" required>
+        <div class=\"warning\">You must know your current password to change it.</div>
+        <div id=\"success\" class=\"success\">Password changed successfully!</div>
+        <div id=\"error\" class=\"error\"></div>
+        <form id=\"changePasswordForm\">
+            <div class=\"form-group\">
+                <label for=\"current_password\">Current Password</label>
+                <input type=\"password\" id=\"current_password\" name=\"current_password\" required>
             </div>
-            <div class="form-group">
-                <label for="new_password">New Password</label>
-                <input type="password" id="new_password" name="new_password" required>
+            <div class=\"form-group\">
+                <label for=\"new_password\">New Password</label>
+                <input type=\"password\" id=\"new_password\" name=\"new_password\" required>
             </div>
-            <div class="form-group">
-                <label for="confirm_password">Confirm New Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" required>
+            <div class=\"form-group\">
+                <label for=\"confirm_password\">Confirm New Password</label>
+                <input type=\"password\" id=\"confirm_password\" name=\"confirm_password\" required>
             </div>
-            <button type="submit">🔒 Change Password</button>
+            <button type=\"submit\">🔒 Change Password</button>
         </form>
-        <a href="/" class="back-link">← Back to Mail</a>
+        <a href=\"/\" class=\"back-link\">← Back to Mail</a>
     </div>
 
     <script>
         document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const currentPassword = document.getElementById('current_password').value;
             const newPassword = document.getElementById('new_password').value;
             const confirmPassword = document.getElementById('confirm_password').value;
-            
+
             document.getElementById('success').style.display = 'none';
             document.getElementById('error').style.display = 'none';
-            
+
             if (newPassword !== confirmPassword) {
                 document.getElementById('error').textContent = 'New passwords do not match';
                 document.getElementById('error').style.display = 'block';
                 return;
             }
-            
+
             const formData = new FormData();
             formData.append('current_password', currentPassword);
             formData.append('new_password', newPassword);
-            
+
             try {
                 const resp = await fetch('/settings/change-password', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (resp.ok) {
                     document.getElementById('success').style.display = 'block';
                     document.getElementById('changePasswordForm').reset();
-                    // Log out after 2 seconds to force re-login with new password
                     setTimeout(() => {
                         window.location.href = '/logout';
                     }, 2000);
@@ -595,25 +835,31 @@ def settings_page():
         });
     </script>
 </body>
-</html>""")
+</html>"""
+    )
 
 
 @app.post("/settings/change-password")
-def change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...)):
-    """Change current user's password"""
+def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+):
     user = get_current_user(request)
-    
-    # Verify current password
+
     if user["password_hash"] != hash_password(current_password):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
-    
-    # Update password in database
+
+    ok, msg = is_strong_password(new_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
         cur.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
-            (hash_password(new_password), user["id"])
+            (hash_password(new_password), user["id"]),
         )
         conn.commit()
         return {"status": "password changed"}
@@ -623,219 +869,12 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
         conn.close()
 
 
-@app.post("/admin/add-user")
-def add_user(request: Request, username: str = Form(...), password: str = Form(...), 
-             account_key: str = Form(...), email: str = Form(...)):
-    # Only logged-in users can add new users (simple security)
-    # You could restrict to just user ID 1 (first user) if you want:
-     current = get_current_user(request)
-     if current["id"] != 2:
-         raise HTTPException(status_code=403, detail="Admin only")
-     conn = sqlite3.connect(DB_PATH)
-     cur = conn.cursor()
-     try:
-        cur.execute(
-            "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
-            (username, hash_password(password), account_key, email),
-        )
-        conn.commit()
-        return {"status": "user created", "username": username, "email": email}
-     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already exists")
-     finally:
-       conn.close()
-@app.get("/debug/user")
-def debug_user(request: Request):
-    try:
-        user = get_current_user(request)
-        return {"logged_in": True, "user": user["username"], "email": user["from_address"]}
-    except:
-        return {"logged_in": False, "error": "Not authenticated"}
-
-@app.get("/login")
-def login_page():
-    return HTMLResponse(content=LOGIN_HTML)
-
-
-@app.post("/login")
-def do_login(username: str = Form(...), password: str = Form(...)):
-    print(f"\n=== LOGIN ATTEMPT ===")
-    print(f"Username: {username}")
-    
-    user = get_user_by_username(username)
-    if not user:
-        print("User not found!")
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if user["password_hash"] != hash_password(password):
-        print("Password mismatch!")
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    session_token = secrets.token_urlsafe(32)
-    active_sessions[session_token] = user["id"]
-    
-    print(f"User {user['username']} (ID: {user['id']}) logged in")
-    print(f"Session token: {session_token[:20]}...")
-    print(f"Total active sessions: {len(active_sessions)}")
-    print(f"Active sessions keys: {list(active_sessions.keys())[:3]}")
-    
-    response = RedirectResponse(url="/", status_code=302)
-    response.set_cookie(
-        key="session",
-        value=session_token,
-        httponly=False,
-        secure=False,
-        samesite="lax",
-        max_age=86400
-    )
-    return response
-
-@app.post("/admin/add-user")
-def add_user(request: Request, username: str = Form(...), password: str = Form(...), 
-             account_key: str = Form(...), email: str = Form(...)):
-    # Check if requester is admin (first user)
-    current = get_current_user(request)
-    if current["id"] != 2:  # Only user ID 2  is admin
-        raise HTTPException(status_code=403, detail="Admin only")
-    
-    # Add new user to DB
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
-            (username, hash_password(password), account_key, email),
-        )
-        conn.commit()
-        return {"status": "user created"}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username exists")
-    finally:
-        conn.close()
-
-
-@app.get("/logout")
-def logout(request: Request):
-    session_token = request.cookies.get("session")
-    if session_token in active_sessions:
-        del active_sessions[session_token]
-    response = RedirectResponse(url="/login", status_code=302)
-    response.delete_cookie("session")
-    return response
-
-
-@app.get("/")
-def read_root(request: Request):
-    session_token = request.cookies.get("session")
-    if not session_token or session_token not in active_sessions:
-        return RedirectResponse(url="/login", status_code=302)
-    return FileResponse("static/index.html")
-
-
-@app.get("/inbox")
-def get_inbox(request: Request, limit: int = 10):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    params = {"searchKey": "in:inbox", "limit": limit}
-    resp = httpx.get(url, headers=headers, params=params)
-    resp.raise_for_status()
-    return resp.json()["data"]
-
-
-@app.get("/message/{message_id}")
-def get_message_content(request: Request, message_id: str):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}/content"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    params = {"includeBlockContent": "true"}
-    resp = httpx.get(url, headers=headers, params=params)
-    resp.raise_for_status()
-    return resp.json()["data"]
-
-@app.get("/me")
-def get_current_user_info(request: Request):
-    user = get_current_user(request)
-    return {
-        "username": user["username"],
-        "email": user["from_address"]
-    }
-
-
-@app.post("/send")
-def send_email(request: Request, req: SendRequest):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    payload = {
-        "fromAddress": user["from_address"],
-        "toAddress": req.to,
-        "subject": req.subject,
-        "content": req.content,
-        "mailFormat": "plaintext",
-    }
-    resp = httpx.post(url, headers=headers, json=payload)
-    if resp.status_code in (200, 201, 202):
-        return {"status": "sent"}
-    raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-
-@app.delete("/message/{message_id}")
-def delete_message(request: Request, message_id: str):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    resp = httpx.delete(url, headers=headers)
-    resp.raise_for_status()
-    return {"status": "deleted"}
-
-
-@app.post("/reply/{message_id}")
-def reply_to_message(request: Request, message_id: str, req: SendRequest):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    payload = {
-        "action": "reply",
-        "fromAddress": user["from_address"],
-        "toAddress": req.to,
-        "subject": req.subject,
-        "content": req.content,
-        "mailFormat": "plaintext",
-    }
-    resp = httpx.post(url, headers=headers, json=payload)
-    if resp.status_code in (200, 201, 202):
-        return {"status": "sent"}
-    raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-
-@app.post("/forward")
-def forward_message(request: Request, req: ForwardRequest):
-    user = get_current_user(request)
-    token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
-    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-
-    full_content = f"{req.content}\n\n--- Forwarded message ---\n{req.original_content}"
-
-    payload = {
-        "fromAddress": user["from_address"],
-        "toAddress": req.to,
-        "subject": req.subject,
-        "content": full_content,
-        "mailFormat": "plaintext",
-    }
-    resp = httpx.post(url, headers=headers, json=payload)
-    if resp.status_code in (200, 201, 202):
-        return {"status": "sent"}
-    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+@app.get("/static/sw.js")
+def service_worker():
+    return FileResponse("static/sw.js", media_type="application/javascript")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
