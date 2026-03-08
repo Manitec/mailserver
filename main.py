@@ -7,25 +7,23 @@ from dotenv import load_dotenv
 import os
 import httpx
 import secrets
+import sqlite3
+import hashlib
 
 # Load credentials
 load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-# Set this in your environment variables
-APP_PASSWORD = os.getenv("APP_PASSWORD")
-# Account config
-ACCOUNT_KEY = "I7k71md8l03w9"
-FROM_ADDRESS = "justin.lavey@manitec.pw"
+
 BASE_URL = "https://mail360.zoho.com"
+DB_PATH = "users.db"
 
 app = FastAPI()
 
-# Session storage (simple in-memory)
-active_sessions = set()
+# Session storage: token -> user_id
+active_sessions: dict[str, int] = {}
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,7 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -50,6 +47,58 @@ class ForwardRequest(BaseModel):
     original_content: str
 
 
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def get_user_by_username(username: str):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, password_hash, account_key, from_address FROM users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "username": row[1], "password_hash": row[2], "account_key": row[3], "from_address": row[4]}
+
+
+def get_user_by_id(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, password_hash, account_key, from_address FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "username": row[1], "password_hash": row[2], "account_key": row[3], "from_address": row[4]}
+
+
+def get_current_user(request: Request):
+    session_token = request.cookies.get("session")
+    print(f"\n=== AUTH CHECK ===")
+    print(f"Cookie token: {session_token[:20] if session_token else 'None'}...")
+    print(f"Active sessions count: {len(active_sessions)}")
+    
+    if not session_token:
+        print("No session cookie!")
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if session_token not in active_sessions:
+        print(f"Token not in active_sessions!")
+        print(f"Available keys: {list(active_sessions.keys())[:3]}")
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    user_id = active_sessions[session_token]
+    user = get_user_by_id(user_id)
+    
+    if not user:
+        print(f"User ID {user_id} not found in DB!")
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    print(f"Authenticated as: {user['username']}")
+    return user
+
+
 def get_access_token() -> str:
     url = f"{BASE_URL}/api/access-token"
     payload = {
@@ -60,11 +109,6 @@ def get_access_token() -> str:
     resp = httpx.post(url, json=payload)
     resp.raise_for_status()
     return resp.json()["data"]["access_token"]
-
-
-def is_authenticated(request: Request) -> bool:
-    session_token = request.cookies.get("session")
-    return session_token in active_sessions
 
 
 LOGIN_HTML = """<!DOCTYPE html>
@@ -93,22 +137,10 @@ LOGIN_HTML = """<!DOCTYPE html>
             max-width: 400px;
             border: 1px solid #475569;
         }
-        .login-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .login-header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-            color: #3b82f6;
-        }
-        .login-header p {
-            color: #94a3b8;
-            font-size: 14px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
+        .login-header { text-align: center; margin-bottom: 30px; }
+        .login-header h1 { font-size: 28px; margin-bottom: 10px; color: #3b82f6; }
+        .login-header p { color: #94a3b8; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
         label {
             display: block;
             margin-bottom: 8px;
@@ -116,7 +148,7 @@ LOGIN_HTML = """<!DOCTYPE html>
             font-weight: 500;
             color: #e2e8f0;
         }
-        input[type="password"] {
+        input {
             width: 100%;
             padding: 12px 16px;
             background: #1e293b;
@@ -126,7 +158,7 @@ LOGIN_HTML = """<!DOCTYPE html>
             font-size: 16px;
             transition: all 0.2s;
         }
-        input[type="password"]:focus {
+        input:focus {
             outline: none;
             border-color: #3b82f6;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
@@ -167,11 +199,15 @@ LOGIN_HTML = """<!DOCTYPE html>
             <h1>📧 Mail360</h1>
             <p>Email Client Login</p>
         </div>
-        <div id="error" class="error">Invalid password</div>
+        <div id="error" class="error">Invalid username or password</div>
         <form id="loginForm">
             <div class="form-group">
+                <label for="username">Username</label>
+                <input id="username" name="username" required autofocus>
+            </div>
+            <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" placeholder="Enter password" required autofocus>
+                <input type="password" id="password" name="password" required>
             </div>
             <button type="submit">Login</button>
         </form>
@@ -179,8 +215,10 @@ LOGIN_HTML = """<!DOCTYPE html>
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             const formData = new FormData();
+            formData.append('username', username);
             formData.append('password', password);
             try {
                 const resp = await fetch('/login', { method: 'POST', body: formData });
@@ -189,7 +227,6 @@ LOGIN_HTML = """<!DOCTYPE html>
                 } else {
                     document.getElementById('error').classList.add('show');
                     document.getElementById('password').value = '';
-                    document.getElementById('password').focus();
                 }
             } catch (err) {
                 document.getElementById('error').textContent = 'Error: ' + err.message;
@@ -200,6 +237,13 @@ LOGIN_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+@app.get("/debug/user")
+def debug_user(request: Request):
+    try:
+        user = get_current_user(request)
+        return {"logged_in": True, "user": user["username"], "email": user["from_address"]}
+    except:
+        return {"logged_in": False, "error": "Not authenticated"}
 
 @app.get("/login")
 def login_page():
@@ -207,30 +251,44 @@ def login_page():
 
 
 @app.post("/login")
-def do_login(password: str = Form(...)):
-    if password == APP_PASSWORD:
-        session_token = secrets.token_urlsafe(32)
-        active_sessions.add(session_token)
-        
-        response = RedirectResponse(url="/", status_code=302)
-        response.set_cookie(
-            key="session",
-            value=session_token,
-            httponly=True,
-            secure=False,
-            samesite="lax",
-            max_age=86400
-        )
-        return response
-    else:
-        raise HTTPException(status_code=401, detail="Invalid password")
+def do_login(username: str = Form(...), password: str = Form(...)):
+    print(f"\n=== LOGIN ATTEMPT ===")
+    print(f"Username: {username}")
+    
+    user = get_user_by_username(username)
+    if not user:
+        print("User not found!")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if user["password_hash"] != hash_password(password):
+        print("Password mismatch!")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    session_token = secrets.token_urlsafe(32)
+    active_sessions[session_token] = user["id"]
+    
+    print(f"User {user['username']} (ID: {user['id']}) logged in")
+    print(f"Session token: {session_token[:20]}...")
+    print(f"Total active sessions: {len(active_sessions)}")
+    print(f"Active sessions keys: {list(active_sessions.keys())[:3]}")
+    
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(
+        key="session",
+        value=session_token,
+        httponly=False,
+        secure=False,
+        samesite="lax",
+        max_age=86400
+    )
+    return response
 
 
 @app.get("/logout")
 def logout(request: Request):
     session_token = request.cookies.get("session")
     if session_token in active_sessions:
-        active_sessions.remove(session_token)
+        del active_sessions[session_token]
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie("session")
     return response
@@ -238,18 +296,17 @@ def logout(request: Request):
 
 @app.get("/")
 def read_root(request: Request):
-    if not is_authenticated(request):
+    session_token = request.cookies.get("session")
+    if not session_token or session_token not in active_sessions:
         return RedirectResponse(url="/login", status_code=302)
     return FileResponse("static/index.html")
 
 
 @app.get("/inbox")
 def get_inbox(request: Request, limit: int = 10):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     params = {"searchKey": "in:inbox", "limit": limit}
     resp = httpx.get(url, headers=headers, params=params)
@@ -259,28 +316,32 @@ def get_inbox(request: Request, limit: int = 10):
 
 @app.get("/message/{message_id}")
 def get_message_content(request: Request, message_id: str):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages/{message_id}/content"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}/content"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     params = {"includeBlockContent": "true"}
     resp = httpx.get(url, headers=headers, params=params)
     resp.raise_for_status()
     return resp.json()["data"]
 
+@app.get("/me")
+def get_current_user_info(request: Request):
+    user = get_current_user(request)
+    return {
+        "username": user["username"],
+        "email": user["from_address"]
+    }
+
 
 @app.post("/send")
 def send_email(request: Request, req: SendRequest):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     payload = {
-        "fromAddress": FROM_ADDRESS,
+        "fromAddress": user["from_address"],
         "toAddress": req.to,
         "subject": req.subject,
         "content": req.content,
@@ -294,11 +355,9 @@ def send_email(request: Request, req: SendRequest):
 
 @app.delete("/message/{message_id}")
 def delete_message(request: Request, message_id: str):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages/{message_id}"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     resp = httpx.delete(url, headers=headers)
     resp.raise_for_status()
@@ -307,15 +366,13 @@ def delete_message(request: Request, message_id: str):
 
 @app.post("/reply/{message_id}")
 def reply_to_message(request: Request, message_id: str, req: SendRequest):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages/{message_id}"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages/{message_id}"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     payload = {
         "action": "reply",
-        "fromAddress": FROM_ADDRESS,
+        "fromAddress": user["from_address"],
         "toAddress": req.to,
         "subject": req.subject,
         "content": req.content,
@@ -329,17 +386,15 @@ def reply_to_message(request: Request, message_id: str, req: SendRequest):
 
 @app.post("/forward")
 def forward_message(request: Request, req: ForwardRequest):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
+    user = get_current_user(request)
     token = get_access_token()
-    url = f"{BASE_URL}/api/accounts/{ACCOUNT_KEY}/messages"
+    url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    
+
     full_content = f"{req.content}\n\n--- Forwarded message ---\n{req.original_content}"
-    
+
     payload = {
-        "fromAddress": FROM_ADDRESS,
+        "fromAddress": user["from_address"],
         "toAddress": req.to,
         "subject": req.subject,
         "content": full_content,
