@@ -6,6 +6,7 @@
     <title>Mail360 Client</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         :root {
             --primary: #3b82f6;
             --primary-dark: #2563eb;
@@ -20,36 +21,55 @@
             --border: #475569;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
         }
-        body {
+
+        html, body {
+            height: 100%;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-main);
             color: var(--text-primary);
             line-height: 1.6;
+            overflow: hidden;
         }
-        .app-container { display: flex; height: 100vh; overflow: hidden; }
+
+        .app-container {
+            display: flex;
+            flex-direction: row;
+            height: 100vh;
+            width: 100vw;
+        }
 
         .sidebar {
             width: 280px;
+            min-width: 280px;
+            height: 100vh;
             background: var(--bg-secondary);
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
+
         .sidebar-header {
             padding: 24px 20px;
             border-bottom: 1px solid var(--border);
         }
+
         .sidebar-header h1 {
             font-size: 20px;
             font-weight: 600;
             margin-bottom: 8px;
             color: var(--primary);
         }
+
         .sidebar-header p {
             font-size: 13px;
             color: var(--text-secondary);
         }
-        .sidebar-actions { padding: 16px; }
+
+        .sidebar-actions {
+            padding: 16px;
+        }
+
         .btn {
             display: block;
             width: 100%;
@@ -65,20 +85,37 @@
             gap: 8px;
             justify-content: center;
         }
-        .btn-primary { background: var(--primary); color: white; }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
         .btn-primary:hover {
             background: var(--primary-dark);
             transform: translateY(-1px);
             box-shadow: var(--shadow);
         }
+
         .btn-secondary {
             background: var(--bg-card);
             color: var(--text-primary);
             margin-top: 8px;
         }
-        .btn-secondary:hover { background: var(--border); }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover { background: var(--danger-dark); }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: var(--danger-dark);
+        }
+
         .btn-sm {
             padding: 8px 14px;
             font-size: 13px;
@@ -90,8 +127,11 @@
             flex: 1;
             display: flex;
             flex-direction: column;
+            height: 100vh;
             overflow: hidden;
+            min-width: 0;
         }
+
         .topbar {
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
@@ -100,13 +140,18 @@
             align-items: center;
             justify-content: space-between;
         }
-        .topbar h2 { font-size: 18px; font-weight: 600; }
+
+        .topbar h2 {
+            font-size: 18px;
+            font-weight: 600;
+        }
 
         .email-list {
             flex: 1;
             overflow-y: auto;
             padding: 16px 24px;
         }
+
         .email-item {
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -116,22 +161,26 @@
             cursor: pointer;
             transition: all 0.2s;
         }
+
         .email-item:hover {
             border-color: var(--primary);
             transform: translateX(4px);
             box-shadow: var(--shadow);
         }
+
         .email-from {
             font-weight: 600;
             color: var(--text-primary);
             font-size: 14px;
             margin-bottom: 4px;
         }
+
         .email-subject {
             color: var(--text-secondary);
             font-size: 13px;
             margin-bottom: 6px;
         }
+
         .email-date {
             color: var(--text-secondary);
             font-size: 12px;
@@ -143,17 +192,23 @@
             flex-direction: column;
             height: 100%;
         }
-        .email-detail.active { display: flex; }
+
+        .email-detail.active {
+            display: flex;
+        }
+
         .detail-header {
             background: var(--bg-secondary);
-            padding: 8px;
+            padding: 24px;
             border-bottom: 1px solid var(--border);
         }
+
         .detail-subject {
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 600;
-            margin-bottom: 14px;
+            margin-bottom: 16px;
         }
+
         .detail-meta {
             display: flex;
             flex-direction: column;
@@ -161,23 +216,26 @@
             font-size: 14px;
             color: var(--text-secondary);
         }
+
         .detail-meta strong {
             color: var(--text-primary);
             font-weight: 500;
         }
+
         .detail-actions {
             padding: 16px 24px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
             display: flex;
-            gap: 10px;
+            gap: 12px;
         }
+
         .detail-body {
             flex: 1;
             padding: 24px;
             overflow-y: auto;
             background: var(--bg-main);
-            white-space: pre-wrap;
+            white-space: normal;
             line-height: 1.8;
         }
 
@@ -186,7 +244,11 @@
             flex-direction: column;
             height: 100%;
         }
-        .compose-screen.active { display: flex; }
+
+        .compose-screen.active {
+            display: flex;
+        }
+
         .compose-header {
             background: var(--bg-secondary);
             padding: 20px 24px;
@@ -195,13 +257,22 @@
             align-items: center;
             justify-content: space-between;
         }
-        .compose-header h2 { font-size: 18px; font-weight: 600; }
+
+        .compose-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
         .compose-form {
             flex: 1;
             padding: 24px;
             overflow-y: auto;
         }
-        .form-group { margin-bottom: 20px; }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
         .form-label {
             display: block;
             font-size: 13px;
@@ -209,6 +280,7 @@
             color: var(--text-secondary);
             margin-bottom: 8px;
         }
+
         .form-input {
             width: 100%;
             padding: 12px 16px;
@@ -219,11 +291,13 @@
             font-size: 14px;
             transition: all 0.2s;
         }
+
         .form-input:focus {
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
+
         textarea.form-input {
             min-height: 200px;
             resize: vertical;
@@ -237,11 +311,13 @@
             font-size: 14px;
             font-weight: 500;
         }
+
         .status-success {
             background: rgba(16, 185, 129, 0.1);
             border: 1px solid var(--success);
             color: var(--success);
         }
+
         .status-error {
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid var(--danger);
@@ -261,6 +337,7 @@
             padding: 40px;
             color: var(--text-secondary);
         }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -268,26 +345,29 @@
     <div class="app-container">
         <div class="sidebar">
             <div class="sidebar-header">
-                <h1>📧 Mail360</h1>
-                <p>justin.lavey@manitec.pw</p>
-            </div>
-           <div class="sidebar-actions">
-    <button class="btn btn-primary" onclick="showCompose()">✉️ Compose New</button>
-    <button class="btn btn-secondary" onclick="loadInbox()">🔄 Refresh Inbox</button>
-    <button class="btn btn-secondary" onclick="window.location.href='/logout'" style="margin-top: 20px;">🚪 Logout</button>
+    <h1>📧 Mail360</h1>
+    <p id="user-info">Loading...</p>
 </div>
+
+            <div class="sidebar-actions">
+                <button class="btn btn-primary" onclick="showCompose()">✉️ Compose New</button>
+                <button class="btn btn-secondary" onclick="loadInbox()">🔄 Refresh Inbox</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/logout'" style="margin-top: 16px;">🚪 Logout</button>
+            </div>
         </div>
 
         <div class="main-content">
-            <!-- Inbox -->
+            <!-- Inbox View -->
             <div id="inbox-view">
-                <div class="topbar"><h2>Inbox</h2></div>
+                <div class="topbar">
+                    <h2>Inbox</h2>
+                </div>
                 <div class="email-list" id="email-list">
                     <div class="loading">Loading emails...</div>
                 </div>
             </div>
 
-            <!-- Detail -->
+            <!-- Email Detail View -->
             <div id="detail-view" class="email-detail">
                 <div class="topbar">
                     <h2>Email</h2>
@@ -309,7 +389,7 @@
                 <div class="detail-body" id="detail-body"></div>
             </div>
 
-            <!-- Compose -->
+            <!-- Compose View -->
             <div id="compose-view" class="compose-screen">
                 <div class="compose-header">
                     <h2 id="compose-title">Compose Email</h2>
@@ -336,7 +416,7 @@
     </div>
 
     <script>
-        const API_BASE = "";  // Empty string = same origin (works when deployed)
+        const API_BASE = "";  // same origin
         let currentMessage = null;
         let currentMessageId = null;
         let composeMode = "new"; // "new" | "reply" | "forward"
@@ -410,8 +490,12 @@
             listEl.innerHTML = '<div class="loading">Loading emails...</div>';
             try {
                 const resp = await fetch(`${API_BASE}/inbox?limit=20`);
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    listEl.innerHTML = `<div class="loading" style="color: var(--danger);">Error: ${errText}</div>`;
+                    return;
+                }
                 const data = await resp.json();
-
                 if (!data || data.length === 0) {
                     listEl.innerHTML = '<div class="loading">Inbox is empty</div>';
                     return;
@@ -439,6 +523,11 @@
             document.getElementById("detail-body").textContent = "Loading...";
             try {
                 const resp = await fetch(`${API_BASE}/message/${messageId}`);
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    document.getElementById("detail-body").textContent = `Error: ${errText}`;
+                    return;
+                }
                 const data = await resp.json();
 
                 currentMessage = data;
@@ -450,7 +539,9 @@
                 document.getElementById("detail-to").textContent = data.toAddress || "";
                 document.getElementById("detail-date").textContent =
                     data.receivedTime ? new Date(parseInt(data.receivedTime)).toLocaleString() : "";
-                document.getElementById("detail-body").innerHTML = data.content || "(No content)";
+
+                const content = data.content || "(No content)";
+                document.getElementById("detail-body").innerHTML = sanitizeHtml(content);
             } catch (err) {
                 document.getElementById("detail-body").textContent = `Error: ${err.message}`;
             }
@@ -467,7 +558,8 @@
                 if (resp.ok) {
                     backToInbox();
                 } else {
-                    alert("Error deleting email");
+                    const errText = await resp.text();
+                    alert("Error deleting email: " + errText);
                 }
             } catch (err) {
                 alert("Error: " + err.message);
@@ -529,8 +621,64 @@
             return div.innerHTML;
         }
 
-        // Initial load
-        loadInbox();
+        async function loadUserInfo() {
+    try {
+        const resp = await fetch(`${API_BASE}/me`);
+        if (resp.ok) {
+            const user = await resp.json();
+            document.getElementById("user-info").textContent = user.email;
+        } else {
+            document.getElementById("user-info").textContent = "Not logged in";
+        }
+    } catch (err) {
+        document.getElementById("user-info").textContent = "Error loading user";
+    }
+}
+
+
+        // Simple sanitizer for HTML email content
+        function sanitizeHtml(html) {
+            if (!html) return "(No content)";
+            const temp = document.createElement("div");
+            temp.innerHTML = html;
+
+            const allowedTags = ['div','span','p','br','b','i','u','strong','em','a','img',
+                                 'table','tr','td','th','tbody','thead','ul','ol','li',
+                                 'h1','h2','h3','h4','h5','h6','blockquote','pre','code','hr'];
+            const allowedAttrs = ['href','src','alt','title','style','width','height','border','cellpadding','cellspacing'];
+
+            const walk = (node) => {
+                for (let i = node.children.length - 1; i >= 0; i--) {
+                    const child = node.children[i];
+
+                    if (child.tagName === 'SCRIPT' || child.tagName === 'STYLE') {
+                        child.remove();
+                        continue;
+                    }
+
+                    if (!allowedTags.includes(child.tagName.toLowerCase())) {
+                        child.replaceWith(document.createTextNode(child.textContent + ' '));
+                        continue;
+                    }
+
+                    for (let j = child.attributes.length - 1; j >= 0; j--) {
+                        const attr = child.attributes[j];
+                        if (!allowedAttrs.includes(attr.name.toLowerCase())) {
+                            child.removeAttribute(attr.name);
+                        }
+                    }
+
+                    walk(child);
+                }
+            };
+
+            walk(temp);
+            return temp.innerHTML;
+        }
+
+       // Initial load
+loadUserInfo();
+loadInbox();
     </script>
 </body>
 </html>
