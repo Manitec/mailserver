@@ -408,6 +408,221 @@ def admin_page():
 </body>
 </html>""")
 
+@app.get("/settings")
+def settings_page():
+    """User settings page to change password"""
+    return HTMLResponse(content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Change Password | Mail360</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f1f5f9;
+        }
+        .container {
+            background: #334155;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            width: 100%;
+            max-width: 450px;
+            border: 1px solid #475569;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 24px;
+            color: #3b82f6;
+            font-size: 24px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #e2e8f0;
+        }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #f1f5f9;
+            font-size: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+        .success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            color: #10b981;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #ef4444;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #94a3b8;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link:hover {
+            color: #3b82f6;
+        }
+        .warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid #f59e0b;
+            color: #f59e0b;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Change Password</h1>
+        <div class="warning">You must know your current password to change it.</div>
+        <div id="success" class="success">Password changed successfully!</div>
+        <div id="error" class="error"></div>
+        <form id="changePasswordForm">
+            <div class="form-group">
+                <label for="current_password">Current Password</label>
+                <input type="password" id="current_password" name="current_password" required>
+            </div>
+            <div class="form-group">
+                <label for="new_password">New Password</label>
+                <input type="password" id="new_password" name="new_password" required>
+            </div>
+            <div class="form-group">
+                <label for="confirm_password">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required>
+            </div>
+            <button type="submit">🔒 Change Password</button>
+        </form>
+        <a href="/" class="back-link">← Back to Mail</a>
+    </div>
+
+    <script>
+        document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const currentPassword = document.getElementById('current_password').value;
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            
+            document.getElementById('success').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            
+            if (newPassword !== confirmPassword) {
+                document.getElementById('error').textContent = 'New passwords do not match';
+                document.getElementById('error').style.display = 'block';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('current_password', currentPassword);
+            formData.append('new_password', newPassword);
+            
+            try {
+                const resp = await fetch('/settings/change-password', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (resp.ok) {
+                    document.getElementById('success').style.display = 'block';
+                    document.getElementById('changePasswordForm').reset();
+                    // Log out after 2 seconds to force re-login with new password
+                    setTimeout(() => {
+                        window.location.href = '/logout';
+                    }, 2000);
+                } else {
+                    const err = await resp.text();
+                    document.getElementById('error').textContent = 'Error: ' + err;
+                    document.getElementById('error').style.display = 'block';
+                }
+            } catch (err) {
+                document.getElementById('error').textContent = 'Error: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>""")
+
+
+@app.post("/settings/change-password")
+def change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...)):
+    """Change current user's password"""
+    user = get_current_user(request)
+    
+    # Verify current password
+    if user["password_hash"] != hash_password(current_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Update password in database
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user["id"])
+        )
+        conn.commit()
+        return {"status": "password changed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @app.post("/admin/add-user")
 def add_user(request: Request, username: str = Form(...), password: str = Form(...), 
              account_key: str = Form(...), email: str = Form(...)):
