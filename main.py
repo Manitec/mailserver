@@ -116,7 +116,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Mail360 Client</title>
+    <title>Login - Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -196,7 +196,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>📧 Mail360</h1>
+            <h1>📧 Manitec Mail</h1>
             <p>Email Client Login</p>
         </div>
         <div id="error" class="error">Invalid username or password</div>
@@ -245,7 +245,7 @@ def admin_page():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Add User | Mail360</title>
+    <title>Admin - Add User | Manitec</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -360,7 +360,7 @@ def admin_page():
                 <input type="password" id="password" name="password" required placeholder="Secure password">
             </div>
             <div class="form-group">
-                <label for="account_key">Mail360 Account Key</label>
+                <label for="account_key">Manitec Account Key</label>
                 <input type="text" id="account_key" name="account_key" required placeholder="e.g., AbC123XyZ789">
             </div>
             <div class="form-group">
@@ -480,7 +480,7 @@ def add_user(request: Request, username: str = Form(...), password: str = Form(.
              account_key: str = Form(...), email: str = Form(...)):
     # Check if requester is admin (first user)
     current = get_current_user(request)
-    if current["id"] != 2:  # Only user ID 2 is admin
+    if current["id"] != 2:  # Only user ID 2  is admin
         raise HTTPException(status_code=403, detail="Admin only")
     
     # Add new user to DB
