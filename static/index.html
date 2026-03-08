@@ -523,10 +523,8 @@
             document.getElementById("compose-title").textContent = "Reply to Email";
             document.getElementById("compose-to").value = currentMessage.fromAddress || "";
             document.getElementById("compose-subject").value = "Re: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value = "
-
---- Original Message ---
-" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value =
+                "\n\n--- Original Message ---\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
         }
@@ -541,13 +539,10 @@
             document.getElementById("compose-title").textContent = "Forward Email";
             document.getElementById("compose-to").value = "";
             document.getElementById("compose-subject").value = "Fwd: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value = "
-
---- Forwarded Message ---
-From: " + (currentMessage.fromAddress || "") + "
-Subject: " + (currentMessage.subject || "") + "
-
-" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value =
+                "\\\\n\\\\n--- Forwarded Message ---\\\\nFrom: " + (currentMessage.fromAddress || "") +
+                "\\\\nSubject: " + (currentMessage.subject || "") +
+                "\\\\n\\\\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
         }
