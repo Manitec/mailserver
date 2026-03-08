@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manitec Mail</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#3b82f6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -29,6 +34,8 @@
             color: var(--text-primary);
             line-height: 1.6;
             overflow: hidden;
+            -webkit-text-size-adjust: 100%;
+            touch-action: manipulation;
         }
 
         .app-container {
@@ -50,24 +57,28 @@
         }
 
         .sidebar-header {
-            padding: 24px 20px;
+            padding: 20px;
             border-bottom: 1px solid var(--border);
         }
 
         .sidebar-header h1 {
             font-size: 20px;
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             color: var(--primary);
         }
 
         .sidebar-header p {
             font-size: 13px;
             color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .sidebar-actions {
             padding: 16px;
+            overflow-y: auto;
         }
 
         .btn {
@@ -84,40 +95,22 @@
             align-items: center;
             gap: 8px;
             justify-content: center;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
+        .btn:active { transform: scale(0.98); }
 
-        .btn-primary:hover {
-            background: var(--primary-dark);
-            transform: translateY(-1px);
-            box-shadow: var(--shadow);
-        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover, .btn-primary:active { background: var(--primary-dark); }
 
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            margin-top: 8px;
-        }
+        .btn-secondary { background: var(--bg-card); color: var(--text-primary); margin-top: 8px; }
+        .btn-secondary:hover { background: var(--border); }
 
-        .btn-secondary:hover {
-            background: var(--border);
-        }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: var(--danger-dark);
-        }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: var(--danger-dark); }
 
         .btn-sm {
-            padding: 8px 14px;
+            padding: 10px 16px;
             font-size: 13px;
             width: auto;
             display: inline-flex;
@@ -135,50 +128,55 @@
         .topbar {
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
+            padding: 14px 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            min-height: 56px;
         }
 
-        .topbar h2 {
-            font-size: 18px;
-            font-weight: 600;
-        }
+        .topbar h2 { font-size: 18px; font-weight: 600; }
 
         .email-list {
             flex: 1;
             overflow-y: auto;
-            padding: 16px 24px;
+            padding: 12px;
+            -webkit-overflow-scrolling: touch;
         }
 
         .email-item {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 16px;
-            margin-bottom: 12px;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        .email-item:hover {
-            border-color: var(--primary);
-            transform: translateX(4px);
-            box-shadow: var(--shadow);
+        .email-item:active {
+            transform: scale(0.99);
+            background: var(--bg-secondary);
         }
 
         .email-from {
             font-weight: 600;
             color: var(--text-primary);
-            font-size: 14px;
+            font-size: 15px;
             margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .email-subject {
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 14px;
             margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .email-date {
@@ -187,109 +185,96 @@
             opacity: 0.7;
         }
 
-        .email-detail {
-            display: none;
-            flex-direction: column;
-            height: 100%;
-        }
-
-        .email-detail.active {
-            display: flex;
-        }
+        .email-detail { display: none; flex-direction: column; height: 100%; }
+        .email-detail.active { display: flex; }
 
         .detail-header {
             background: var(--bg-secondary);
-            padding: 24px;
+            padding: 20px;
             border-bottom: 1px solid var(--border);
         }
 
         .detail-subject {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 600;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
+            line-height: 1.3;
+            word-break: break-word;
         }
 
         .detail-meta {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            font-size: 14px;
+            gap: 6px;
+            font-size: 13px;
             color: var(--text-secondary);
         }
 
-        .detail-meta strong {
-            color: var(--text-primary);
-            font-weight: 500;
-        }
+        .detail-meta strong { color: var(--text-primary); font-weight: 500; }
 
         .detail-actions {
-            padding: 16px 24px;
+            padding: 12px 16px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
             display: flex;
-            gap: 12px;
+            gap: 8px;
+            flex-wrap: wrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .detail-body {
             flex: 1;
-            padding: 24px;
+            padding: 16px;
             overflow-y: auto;
             background: var(--bg-main);
-            white-space: normal;
-            line-height: 1.8;
+            line-height: 1.7;
+            word-wrap: break-word;
+            -webkit-overflow-scrolling: touch;
         }
 
-        .compose-screen {
-            display: none;
-            flex-direction: column;
-            height: 100%;
-        }
-
-        .compose-screen.active {
-            display: flex;
-        }
+        .compose-screen { display: none; flex-direction: column; height: 100%; }
+        .compose-screen.active { display: flex; }
 
         .compose-header {
             background: var(--bg-secondary);
-            padding: 20px 24px;
+            padding: 16px 20px;
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            min-height: 56px;
         }
 
-        .compose-header h2 {
-            font-size: 18px;
-            font-weight: 600;
-        }
+        .compose-header h2 { font-size: 17px; font-weight: 600; }
 
         .compose-form {
             flex: 1;
-            padding: 24px;
+            padding: 16px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
-        .form-group {
-            margin-bottom: 20px;
-        }
+        .form-group { margin-bottom: 16px; }
 
         .form-label {
             display: block;
             font-size: 13px;
             font-weight: 500;
             color: var(--text-secondary);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .form-input {
             width: 100%;
-            padding: 12px 16px;
+            padding: 12px 14px;
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--text-primary);
-            font-size: 14px;
+            font-size: 16px;
             transition: all 0.2s;
+            -webkit-appearance: none;
         }
 
         .form-input:focus {
@@ -299,9 +284,10 @@
         }
 
         textarea.form-input {
-            min-height: 200px;
+            min-height: 150px;
             resize: vertical;
             font-family: inherit;
+            font-size: 16px;
         }
 
         .status-message {
@@ -324,42 +310,104 @@
             color: var(--danger);
         }
 
-        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: var(--bg-secondary); }
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 4px;
-        }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
 
         .loading {
             text-align: center;
             padding: 40px;
             color: var(--text-secondary);
+            font-size: 14px;
         }
 
         .hidden { display: none !important; }
+
+        @media (max-width: 768px) {
+            .app-container { flex-direction: column; }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                min-height: 60px;
+                max-height: none;
+                flex-direction: row;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                padding: 8px 12px;
+                align-items: center;
+            }
+
+            .sidebar-header {
+                padding: 0;
+                border-bottom: none;
+                flex: 1;
+                min-width: 0;
+            }
+
+            .sidebar-header h1 { font-size: 16px; margin-bottom: 2px; }
+            .sidebar-header p { font-size: 11px; }
+
+            .sidebar-actions {
+                display: flex;
+                padding: 0;
+                gap: 8px;
+                flex-direction: row;
+            }
+
+            .sidebar-actions .btn {
+                width: auto;
+                padding: 10px 12px;
+                margin: 0;
+                font-size: 13px;
+            }
+
+            .topbar { padding: 12px 16px; min-height: 50px; }
+            .topbar h2 { font-size: 16px; }
+
+            .email-list { padding: 8px; }
+            .email-item { padding: 12px; margin-bottom: 8px; border-radius: 10px; }
+            .email-from { font-size: 14px; }
+            .email-subject { font-size: 13px; }
+            .email-date { font-size: 11px; }
+
+            .detail-header { padding: 16px; }
+            .detail-subject { font-size: 17px; }
+            .detail-meta { font-size: 12px; }
+
+            .detail-actions { padding: 10px 12px; gap: 6px; }
+            .detail-actions .btn { padding: 10px 14px; font-size: 13px; }
+
+            .detail-body { padding: 12px; font-size: 15px; }
+            .detail-body img { max-width: 100%; height: auto; }
+
+            .compose-header { padding: 12px 16px; min-height: 50px; }
+            .compose-header h2 { font-size: 16px; }
+
+            .compose-form { padding: 12px; }
+            .form-group { margin-bottom: 14px; }
+            .form-input { padding: 12px; font-size: 16px; }
+            textarea.form-input { min-height: 120px; }
+        }
     </style>
 </head>
 <body>
     <div class="app-container">
         <div class="sidebar">
             <div class="sidebar-header">
-    <h1>📧 Manitec Mail</h1>
-    <p id="user-info">Loading...</p>
-</div>
-
+                <h1>📧 Manitec Mail</h1>
+                <p id="user-info">Loading...</p>
+            </div>
             <div class="sidebar-actions">
-    <button class="btn btn-primary" onclick="showCompose()">✉️ Compose New</button>
-    <button class="btn btn-secondary" onclick="loadInbox()">🔄 Refresh Inbox</button>
-    <button class="btn btn-secondary" onclick="window.location.href='/settings'" style="margin-top: 8px;">⚙️ Change Password</button>
-    <button class="btn btn-secondary" onclick="window.location.href='/logout'" style="margin-top: 8px;">🚪 Logout</button>
-</div>
-
+                <button class="btn btn-primary" onclick="showCompose()">✉️ New</button>
+                <button class="btn btn-secondary" onclick="loadInbox()">🔄</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/settings'">⚙️</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/logout'">🚪</button>
+            </div>
         </div>
 
         <div class="main-content">
-            <!-- Inbox View -->
             <div id="inbox-view">
                 <div class="topbar">
                     <h2>Inbox</h2>
@@ -369,7 +417,6 @@
                 </div>
             </div>
 
-            <!-- Email Detail View -->
             <div id="detail-view" class="email-detail">
                 <div class="topbar">
                     <h2>Email</h2>
@@ -385,13 +432,12 @@
                 </div>
                 <div class="detail-actions">
                     <button class="btn btn-primary btn-sm" onclick="showReply()">↩️ Reply</button>
-                    <button class="btn btn-primary btn-sm" onclick="showForward()">↪️ Forward</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteEmail()">🗑️ Delete</button>
+                    <button class="btn btn-primary btn-sm" onclick="showForward()">↪️ Fwd</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteEmail()">🗑️ Del</button>
                 </div>
                 <div class="detail-body" id="detail-body"></div>
             </div>
 
-            <!-- Compose View -->
             <div id="compose-view" class="compose-screen">
                 <div class="compose-header">
                     <h2 id="compose-title">Compose Email</h2>
@@ -410,7 +456,7 @@
                         <label class="form-label">Message</label>
                         <textarea class="form-input" id="compose-content" placeholder="Type your message here..."></textarea>
                     </div>
-                    <button class="btn btn-primary" onclick="sendEmail()" style="width:auto;display:inline-flex;">📤 Send Email</button>
+                    <button class="btn btn-primary" onclick="sendEmail()" style="width:auto;display:inline-flex;">📤 Send</button>
                     <div id="compose-status"></div>
                 </div>
             </div>
@@ -418,10 +464,24 @@
     </div>
 
     <script>
-        const API_BASE = "";  // same origin
+        const API_BASE = "";
         let currentMessage = null;
         let currentMessageId = null;
-        let composeMode = "new"; // "new" | "reply" | "forward"
+        let composeMode = "new";
+
+        async function loadUserInfo() {
+            try {
+                const resp = await fetch(`${API_BASE}/me`);
+                if (resp.ok) {
+                    const user = await resp.json();
+                    document.getElementById("user-info").textContent = user.email;
+                } else {
+                    document.getElementById("user-info").textContent = "Not logged in";
+                }
+            } catch (err) {
+                document.getElementById("user-info").textContent = "Error loading user";
+            }
+        }
 
         function showView(viewId) {
             document.getElementById("inbox-view").classList.add("hidden");
@@ -463,8 +523,10 @@
             document.getElementById("compose-title").textContent = "Reply to Email";
             document.getElementById("compose-to").value = currentMessage.fromAddress || "";
             document.getElementById("compose-subject").value = "Re: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value =
-                "\n\n--- Original Message ---\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value = "
+
+--- Original Message ---
+" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
         }
@@ -479,10 +541,13 @@
             document.getElementById("compose-title").textContent = "Forward Email";
             document.getElementById("compose-to").value = "";
             document.getElementById("compose-subject").value = "Fwd: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value =
-                "\n\n--- Forwarded Message ---\nFrom: " + (currentMessage.fromAddress || "") +
-                "\nSubject: " + (currentMessage.subject || "") +
-                "\n\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value = "
+
+--- Forwarded Message ---
+From: " + (currentMessage.fromAddress || "") + "
+Subject: " + (currentMessage.subject || "") + "
+
+" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
         }
@@ -539,8 +604,7 @@
                 document.getElementById("detail-subject").textContent = data.subject || "(No subject)";
                 document.getElementById("detail-from").textContent = data.fromAddress || "Unknown";
                 document.getElementById("detail-to").textContent = data.toAddress || "";
-                document.getElementById("detail-date").textContent =
-                    data.receivedTime ? new Date(parseInt(data.receivedTime)).toLocaleString() : "";
+                document.getElementById("detail-date").textContent = data.receivedTime ? new Date(parseInt(data.receivedTime)).toLocaleString() : "";
 
                 const content = data.content || "(No content)";
                 document.getElementById("detail-body").innerHTML = sanitizeHtml(content);
@@ -589,12 +653,7 @@
                     url = `${API_BASE}/reply/${currentMessageId}`;
                 } else if (composeMode === "forward" && currentMessage) {
                     url = `${API_BASE}/forward`;
-                    payload = {
-                        to,
-                        subject,
-                        content,
-                        original_content: currentMessage.content || ""
-                    };
+                    payload = { to, subject, content, original_content: currentMessage.content || "" };
                 } else {
                     url = `${API_BASE}/send`;
                 }
@@ -623,30 +682,12 @@
             return div.innerHTML;
         }
 
-        async function loadUserInfo() {
-    try {
-        const resp = await fetch(`${API_BASE}/me`);
-        if (resp.ok) {
-            const user = await resp.json();
-            document.getElementById("user-info").textContent = user.email;
-        } else {
-            document.getElementById("user-info").textContent = "Not logged in";
-        }
-    } catch (err) {
-        document.getElementById("user-info").textContent = "Error loading user";
-    }
-}
-
-
-        // Simple sanitizer for HTML email content
         function sanitizeHtml(html) {
             if (!html) return "(No content)";
             const temp = document.createElement("div");
             temp.innerHTML = html;
 
-            const allowedTags = ['div','span','p','br','b','i','u','strong','em','a','img',
-                                 'table','tr','td','th','tbody','thead','ul','ol','li',
-                                 'h1','h2','h3','h4','h5','h6','blockquote','pre','code','hr'];
+            const allowedTags = ['div','span','p','br','b','i','u','strong','em','a','img','table','tr','td','th','tbody','thead','ul','ol','li','h1','h2','h3','h4','h5','h6','blockquote','pre','code','hr'];
             const allowedAttrs = ['href','src','alt','title','style','width','height','border','cellpadding','cellspacing'];
 
             const walk = (node) => {
@@ -678,9 +719,57 @@
             return temp.innerHTML;
         }
 
-       // Initial load
-loadUserInfo();
-loadInbox();
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+            });
+        }
+
+        let deferredPrompt;
+        const installButton = document.createElement('button');
+        installButton.textContent = '📱 Install App';
+        installButton.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          padding: 10px 18px;
+          background: #10b981;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          z-index: 9999;
+          display: none;
+        `;
+        document.body.appendChild(installButton);
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installButton.style.display = 'block';
+        });
+
+        installButton.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installButton.style.display = 'none';
+                }
+                deferredPrompt = null;
+            }
+        });
+
+        window.addEventListener('appinstalled', () => {
+            installButton.style.display = 'none';
+            deferredPrompt = null;
+        });
+
+        loadUserInfo();
+        loadInbox();
     </script>
 </body>
 </html>
