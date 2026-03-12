@@ -46,9 +46,11 @@ app.add_middleware(
         "localhost",
         "127.0.0.1",
         "mail.manitec.pw",
+        "manitec.pw",
         "mailserver-gjlu.onrender.com/",  # REPLACE with your actual Render host
         "*.onrender.com",
     ],
+
 )
 
 # Static files
