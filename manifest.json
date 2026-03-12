@@ -1,1 +1,0 @@
-{"name": "Manitec Mail", "short_name": "Manitec", "description": "Multi-user email client for Manitec Mail", "start_url": "/", "display": "standalone", "background_color": "#0f172a", "theme_color": "#3b82f6", "orientation": "portrait", "scope": "/", "icons": [{"src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png"}]}
