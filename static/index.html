@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manitec Mail</title>
-    <link rel="manifest" href="/static/manifest.json">
+    <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#3b82f6">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -561,7 +561,7 @@ textarea.form-input {
                     <button class="btn btn-primary btn-sm" onclick="showForward()">↪️ Fwd</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteEmail()">🗑️ Del</button>
                 </div>
-                <div class="detail-body" id="detail-body"></div>
+                <div id="detail-body" class="detail-body"></div>
             </div>
 
             <div id="compose-view" class="compose-screen">
@@ -594,6 +594,7 @@ textarea.form-input {
         let currentMessage = null;
         let currentMessageId = null;
         let composeMode = "new";
+        let currentInboxMessages = [];
 
         async function loadUserInfo() {
             try {
@@ -685,6 +686,7 @@ textarea.form-input {
                     return;
                 }
                 const data = await resp.json();
+                currentInboxMessages = data;
                 if (!data || data.length === 0) {
                     listEl.innerHTML = '<div class="loading">Inbox is empty</div>';
                     return;
@@ -694,12 +696,11 @@ textarea.form-input {
                 data.forEach(msg => {
                     const date = msg.receivedTime ? new Date(parseInt(msg.receivedTime)).toLocaleString() : "";
                     html += `
-                        <div class="email-item" onclick="loadMessage('${msg.messageId}')">
-                            <div class="email-from">${escapeHtml(msg.fromAddress || msg.sender || "Unknown")}</div>
-                            <div class="email-subject">${escapeHtml(msg.subject || "(No subject)")}</div>
-                            <div class="email-date">${date}</div>
-                        </div>
-                    `;
+    <div class="email-item" onclick="loadMessage('${msg.messageId}')">
+        <div class="email-from">${escapeHtml(msg.fromAddress || msg.sender || "Unknown")}</div>
+        <div class="email-subject">${escapeHtml(msg.subject || msg.summary || "(No subject)")}</div>
+        <div class="email-date">${date}</div>
+    </div>`;
                 });
                 listEl.innerHTML = html;
             } catch (err) {
@@ -707,7 +708,8 @@ textarea.form-input {
             }
         }
 
-      async function loadMessage(messageId) {
+    async function loadMessage(messageId) {
+    console.log("loadMessage called with", messageId);
     showView("detail");
     document.getElementById("detail-body").textContent = "Loading...";
     try {
@@ -719,31 +721,36 @@ textarea.form-input {
         }
         const data = await resp.json();
 
-        currentMessage = data;
-        currentMessage.messageId = messageId;
+        // find matching message from inbox list
+        const msgFromList = currentInboxMessages.find(m => m.messageId === messageId);
+        if (!msgFromList) {
+            console.error("No metadata found for", messageId);
+            return;
+        }
+
+        currentMessage = {
+            ...msgFromList,  // subject, fromAddress, etc.
+            content: data.content
+        };
         currentMessageId = messageId;
 
-        // header fields
+        // populate header
         document.getElementById("detail-subject").textContent =
-            data.subject && data.subject.trim() !== ""
-                ? data.subject
-                : "(No subject)";
+            currentMessage.subject || currentMessage.summary || "(No subject)";
         document.getElementById("detail-from").textContent =
-            data.fromAddress || data.sender || "Unknown";
+            currentMessage.fromAddress || currentMessage.sender || "Unknown";
         document.getElementById("detail-to").textContent =
-            data.toAddress || "";
+    (currentMessage.toAddress || "").replace(/&lt;/g, '').replace(/&gt;/g, '') || "";
         document.getElementById("detail-date").textContent =
-            data.receivedTime
-                ? new Date(parseInt(data.receivedTime)).toLocaleString()
+            currentMessage.receivedTime
+                ? new Date(parseInt(currentMessage.receivedTime)).toLocaleString()
                 : "";
 
-        // body
-        const content = data.content || "(No content)";
-        document.getElementById("detail-body").innerHTML = sanitizeHtml(content);
+        document.getElementById("detail-body").innerHTML =
+            sanitizeHtml(currentMessage.content || "(No content)");
     } catch (err) {
         console.error("loadMessage error", err);
-        document.getElementById("detail-body").textContent =
-            `Error: ${err.message}`;
+        document.getElementById("detail-body").textContent = `Error: ${err.message}`;
     }
 }
 
