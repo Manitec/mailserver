@@ -3,7 +3,7 @@ const STATIC_ASSETS = [
   '/',
   '/static/index.html',
   '/login',
-  '/manifest.json'
+  '/static/manifest.json'
 ];
 
 // Install event - cache static assets
