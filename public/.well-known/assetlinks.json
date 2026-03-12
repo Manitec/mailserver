@@ -1,7 +1,11 @@
 [{
       "relation": ["delegate_permission/common.handle_all_urls"],
       "target": {
-        "namespace": "android_app",
+        "namespace": "web", "site":"https://mail.manitec.pw"
+  }
+  },{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
         "package_name": "pw.manitec.mail.twa",
         "sha256_cert_fingerprints": ["02:2a:1e:d9:fe:b0:e6:c9:82:6d:f9:9c:58:35:0b:77:89:a7:1a:d5:1f:14:2f:40:44:9f:91:d5:8c:02:78:c1"]
       }
