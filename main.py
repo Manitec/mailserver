@@ -619,9 +619,9 @@ def add_user(
     account_key: str = Form(...),
     email: str = Form(...),
 ):
-    # Only first user (ID 1) is admin
+    # Only one user (ID 2) is admin
     current = get_current_user(request)
-    if current["id"] != 1:
+    if current["id"] != 2:
         raise HTTPException(status_code=403, detail="Admin only")
 
     username_clean = sanitize_input(username, max_length=64).lower()
