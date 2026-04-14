@@ -5,10 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manitec Mail</title>
     <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#3b82f6">
+    <meta name="theme-color" content="#0f172a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
+    <meta name="apple-mobile-web-app-title" content="Manitec Mail">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/static/icons/icon-512x512.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -45,7 +49,6 @@ html, body {
     width: 100vw;
 }
 
-/* Sidebar - Desktop */
 .sidebar {
     width: 280px;
     min-width: 280px;
@@ -136,6 +139,47 @@ html, body {
     font-size: 13px;
     width: auto;
     display: inline-flex;
+}
+
+.install-cta {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    width: auto;
+    max-width: calc(100vw - 32px);
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.install-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+}
+
+.install-cta:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 3px;
+}
+
+.install-cta-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
+.install-cta-label {
+    white-space: nowrap;
 }
 
 .main-content {
@@ -319,7 +363,7 @@ html, body {
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text-primary);
-    font-size: 16px; /* Prevent zoom on iOS */
+    font-size: 16px;
     transition: all 0.2s;
     -webkit-appearance: none;
 }
@@ -374,7 +418,6 @@ textarea.form-input {
 
 .hidden { display: none !important; }
 
-/* ==================== MOBILE STYLES ==================== */
 @media (max-width: 768px) {
     .app-container {
         flex-direction: column;
@@ -422,7 +465,6 @@ textarea.form-input {
         font-size: 13px;
     }
     
-    /* Hide text on mobile buttons, show only icons */
     .sidebar-actions .btn span {
         display: none;
     }
@@ -509,11 +551,19 @@ textarea.form-input {
     
     .form-input {
         padding: 12px;
-        font-size: 16px; /* Prevent iOS zoom */
+        font-size: 16px;
     }
     
     textarea.form-input {
         min-height: 120px;
+    }
+
+    .install-cta {
+        right: 12px;
+        left: 12px;
+        bottom: 12px;
+        justify-content: center;
+        max-width: none;
     }
 }
     </style>
@@ -589,6 +639,15 @@ textarea.form-input {
         </div>
     </div>
 
+    <button id="install-cta" class="install-cta" type="button" aria-label="Install Manitec Mail" hidden>
+        <svg class="install-cta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"></path>
+            <path d="m7 10 5 5 5-5"></path>
+            <path d="M5 21h14"></path>
+        </svg>
+        <span class="install-cta-label">Install Manitec Mail</span>
+    </button>
+
     <script>
         const API_BASE = "";
         let currentMessage = null;
@@ -638,6 +697,7 @@ textarea.form-input {
             document.getElementById("compose-content").value = "";
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
+            if (location.hash !== '#compose') history.replaceState(null, '', '#compose');
         }
 
         function showReply() {
@@ -650,8 +710,7 @@ textarea.form-input {
             document.getElementById("compose-title").textContent = "Reply to Email";
             document.getElementById("compose-to").value = currentMessage.fromAddress || "";
             document.getElementById("compose-subject").value = "Re: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value =
-                "\n\n--- Original Message ---\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value = "\n\n--- Original Message ---\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
         }
@@ -666,13 +725,9 @@ textarea.form-input {
             document.getElementById("compose-title").textContent = "Forward Email";
             document.getElementById("compose-to").value = "";
             document.getElementById("compose-subject").value = "Fwd: " + (currentMessage.subject || "");
-            document.getElementById("compose-content").value =
-                "\n\n--- Forwarded Message ---\nFrom: " + (currentMessage.fromAddress || "") +
-                "\nSubject: " + (currentMessage.subject || "") +
-                "\n\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
+            document.getElementById("compose-content").value = "\n\n--- Forwarded Message ---\nFrom: " + (currentMessage.fromAddress || "") + "\nSubject: " + (currentMessage.subject || "") + "\n\n" + (currentMessage.content ? currentMessage.content.substring(0, 500) : "");
             document.getElementById("compose-status").innerHTML = "";
             showView("compose");
-
         }
 
         async function loadInbox() {
@@ -708,51 +763,40 @@ textarea.form-input {
             }
         }
 
-    async function loadMessage(messageId) {
-    console.log("loadMessage called with", messageId);
-    showView("detail");
-    document.getElementById("detail-body").textContent = "Loading...";
-    try {
-        const resp = await fetch(`${API_BASE}/message/${messageId}`);
-        if (!resp.ok) {
-            const errText = await resp.text();
-            document.getElementById("detail-body").textContent = `Error: ${errText}`;
-            return;
+        async function loadMessage(messageId) {
+            console.log("loadMessage called with", messageId);
+            showView("detail");
+            document.getElementById("detail-body").textContent = "Loading...";
+            try {
+                const resp = await fetch(`${API_BASE}/message/${messageId}`);
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    document.getElementById("detail-body").textContent = `Error: ${errText}`;
+                    return;
+                }
+                const data = await resp.json();
+                const msgFromList = currentInboxMessages.find(m => m.messageId === messageId);
+                if (!msgFromList) {
+                    console.error("No metadata found for", messageId);
+                    return;
+                }
+
+                currentMessage = {
+                    ...msgFromList,
+                    content: data.content
+                };
+                currentMessageId = messageId;
+
+                document.getElementById("detail-subject").textContent = currentMessage.subject || currentMessage.summary || "(No subject)";
+                document.getElementById("detail-from").textContent = currentMessage.fromAddress || currentMessage.sender || "Unknown";
+                document.getElementById("detail-to").textContent = (currentMessage.toAddress || "").replace(/&lt;/g, '').replace(/&gt;/g, '') || "";
+                document.getElementById("detail-date").textContent = currentMessage.receivedTime ? new Date(parseInt(currentMessage.receivedTime)).toLocaleString() : "";
+                document.getElementById("detail-body").innerHTML = sanitizeHtml(currentMessage.content || "(No content)");
+            } catch (err) {
+                console.error("loadMessage error", err);
+                document.getElementById("detail-body").textContent = `Error: ${err.message}`;
+            }
         }
-        const data = await resp.json();
-
-        // find matching message from inbox list
-        const msgFromList = currentInboxMessages.find(m => m.messageId === messageId);
-        if (!msgFromList) {
-            console.error("No metadata found for", messageId);
-            return;
-        }
-
-        currentMessage = {
-            ...msgFromList,  // subject, fromAddress, etc.
-            content: data.content
-        };
-        currentMessageId = messageId;
-
-        // populate header
-        document.getElementById("detail-subject").textContent =
-            currentMessage.subject || currentMessage.summary || "(No subject)";
-        document.getElementById("detail-from").textContent =
-            currentMessage.fromAddress || currentMessage.sender || "Unknown";
-        document.getElementById("detail-to").textContent =
-    (currentMessage.toAddress || "").replace(/&lt;/g, '').replace(/&gt;/g, '') || "";
-        document.getElementById("detail-date").textContent =
-            currentMessage.receivedTime
-                ? new Date(parseInt(currentMessage.receivedTime)).toLocaleString()
-                : "";
-
-        document.getElementById("detail-body").innerHTML =
-            sanitizeHtml(currentMessage.content || "(No content)");
-    } catch (err) {
-        console.error("loadMessage error", err);
-        document.getElementById("detail-body").textContent = `Error: ${err.message}`;
-    }
-}
 
         async function deleteEmail() {
             if (!currentMessageId) {
@@ -861,57 +905,65 @@ textarea.form-input {
         }
 
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+            window.addEventListener('load', async () => {
+                try {
+                    const registration = await navigator.serviceWorker.register('/static/sw.js');
+                    console.log('Service worker registered:', registration.scope);
+                } catch (error) {
+                    console.error('Service worker registration failed:', error);
+                }
             });
         }
 
-        
         let deferredPrompt;
-        const installButton = document.createElement('button');
-        installButton.textContent = '📱 Install App';
-        installButton.style.cssText = `
-          position: fixed;
-          bottom: 20px;
-          right: 20px;
-          padding: 10px 18px;
-          background: #10b981;
-          color: white;
-          border: none;
-          border-radius: 8px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-          z-index: 9999;
-          display: none;
-        `;
-        document.body.appendChild(installButton);
+        const installButton = document.getElementById('install-cta');
+
+        function hideInstallButton() {
+            installButton.hidden = true;
+            installButton.style.display = 'none';
+        }
+
+        function showInstallButton() {
+            installButton.hidden = false;
+            installButton.style.display = 'inline-flex';
+        }
 
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            installButton.style.display = 'block';
+            showInstallButton();
         });
 
         installButton.addEventListener('click', async () => {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installButton.style.display = 'none';
-                }
-                deferredPrompt = null;
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                hideInstallButton();
             }
-        });
-
-        window.addEventListener('appinstalled', () => {
-            installButton.style.display = 'none';
             deferredPrompt = null;
         });
 
+        window.addEventListener('appinstalled', () => {
+            hideInstallButton();
+            deferredPrompt = null;
+            console.log('PWA installed');
+        });
+
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+            hideInstallButton();
+        }
+
+        function handleInitialRoute() {
+            if (location.hash === '#compose') {
+                showCompose();
+            } else {
+                loadInbox();
+            }
+        }
+
         loadUserInfo();
-        loadInbox();
+        handleInitialRoute();
     </script>
 </body>
 </html>
