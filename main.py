@@ -39,7 +39,7 @@ app.add_middleware(
 # Rate limiting: 100 requests per 60 seconds per IP
 app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
 
-# Restrict allowed hosts (update Render host below)
+# Restrict allowed hosts
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=[
@@ -47,14 +47,13 @@ app.add_middleware(
         "127.0.0.1",
         "mail.manitec.pw",
         "manitec.pw",
-        "mailserver-gjlu.onrender.com/",  # REPLACE with your actual Render host
+        "mailserver-gjlu.onrender.com/",
         "*.onrender.com",
     ],
-
 )
 
-# Static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# NOTE: StaticFiles mount is at the BOTTOM of this file so that
+# named routes (like /static/index.html block below) take priority.
 
 
 class SendRequest(BaseModel):
@@ -140,10 +139,10 @@ def get_access_token() -> str:
 
 
 LOGIN_HTML = """<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -222,22 +221,22 @@ LOGIN_HTML = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class=\"login-container\">
-        <div class=\"login-header\">
-            <h1>📧 Manitec Mail</h1>
-            <p>Email Client Login</p>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>Manitec Mail</h1>
+            <p>Sign in to continue</p>
         </div>
-        <div id=\"error\" class=\"error\">Invalid username or password</div>
-        <form id=\"loginForm\">
-            <div class=\"form-group\">
-                <label for=\"username\">Username</label>
-                <input id=\"username\" name=\"username\" required autofocus>
+        <div id="error" class="error">Invalid username or password</div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input id="username" name="username" required autofocus autocomplete="username" autocapitalize="none">
             </div>
-            <div class=\"form-group\">
-                <label for=\"password\">Password</label>
-                <input type=\"password\" id=\"password\" name=\"password\" required>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
             </div>
-            <button type=\"submit\">Login</button>
+            <button type="submit">Sign in</button>
         </form>
     </div>
     <script>
@@ -286,7 +285,7 @@ def do_login(username: str = Form(...), password: str = Form(...)):
         key="session",
         value=session_token,
         httponly=True,
-        secure=False,  # set True behind HTTPS
+        secure=True,
         samesite="lax",
         max_age=86400,
     )
@@ -309,6 +308,16 @@ def read_root(request: Request):
     if not session_token or session_token not in active_sessions:
         return RedirectResponse(url="/login", status_code=302)
     return FileResponse("static/index.html")
+
+
+# Block direct access to index.html via /static/ — redirect to / which enforces auth.
+# This MUST be defined before app.mount("/static") at the bottom.
+@app.get("/static/index.html")
+def block_static_index(request: Request):
+    session_token = request.cookies.get("session")
+    if not session_token or session_token not in active_sessions:
+        return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/", status_code=302)
 
 
 @app.get("/me")
@@ -442,10 +451,10 @@ def forward_message(request: Request, req: ForwardRequest):
 def admin_page():
     return HTMLResponse(
         content="""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Add User | Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -467,131 +476,52 @@ def admin_page():
             max-width: 450px;
             border: 1px solid #475569;
         }
-        h1 {
-            text-align: center;
-            margin-bottom: 24px;
-            color: #3b82f6;
-            font-size: 24px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            color: #e2e8f0;
-        }
+        h1 { text-align: center; margin-bottom: 24px; color: #3b82f6; font-size: 24px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #e2e8f0; }
         input {
-            width: 100%;
-            padding: 12px 16px;
-            background: #1e293b;
-            border: 1px solid #475569;
-            border-radius: 8px;
-            color: #f1f5f9;
-            font-size: 14px;
+            width: 100%; padding: 12px 16px; background: #1e293b;
+            border: 1px solid #475569; border-radius: 8px; color: #f1f5f9; font-size: 14px;
         }
-        input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
+        input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
         button {
-            width: 100%;
-            padding: 14px;
-            background: #10b981;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
+            width: 100%; padding: 14px; background: #10b981; color: white;
+            border: none; border-radius: 8px; font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
         }
-        button:hover {
-            background: #059669;
-            transform: translateY(-1px);
-        }
-        .success {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid #10b981;
-            color: #10b981;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-        .error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid #ef4444;
-            color: #ef4444;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-        .back-link {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            color: #94a3b8;
-            text-decoration: none;
-            font-size: 14px;
-        }
-        .back-link:hover {
-            color: #3b82f6;
-        }
+        button:hover { background: #059669; transform: translateY(-1px); }
+        .success { background: rgba(16,185,129,0.1); border: 1px solid #10b981; color: #10b981; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
+        .error { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
+        .back-link { display: block; text-align: center; margin-top: 20px; color: #94a3b8; text-decoration: none; font-size: 14px; }
+        .back-link:hover { color: #3b82f6; }
     </style>
 </head>
 <body>
-    <div class=\"container\">
-        <h1>👤 Add New User</h1>
-        <div id=\"success\" class=\"success\">User created successfully!</div>
-        <div id=\"error\" class=\"error\"></div>
-        <form id=\"addUserForm\">
-            <div class=\"form-group\">
-                <label for=\"username\">Username</label>
-                <input type=\"text\" id=\"username\" name=\"username\" required placeholder=\"john.doe\">
-            </div>
-            <div class=\"form-group\">
-                <label for=\"password\">Password</label>
-                <input type=\"password\" id=\"password\" name=\"password\" required placeholder=\"Secure password\">
-            </div>
-            <div class=\"form-group\">
-                <label for=\"account_key\">Mail360 Account Key</label>
-                <input type=\"text\" id=\"account_key\" name=\"account_key\" required placeholder=\"e.g., AbC123XyZ789\">
-            </div>
-            <div class=\"form-group\">
-                <label for=\"email\">Email Address</label>
-                <input type=\"email\" id=\"email\" name=\"email\" required placeholder=\"john@manitec.pw\">
-            </div>
-            <button type=\"submit\">➕ Create User</button>
+    <div class="container">
+        <h1>Add New User</h1>
+        <div id="success" class="success">User created successfully!</div>
+        <div id="error" class="error"></div>
+        <form id="addUserForm">
+            <div class="form-group"><label for="username">Username</label><input type="text" id="username" name="username" required placeholder="john.doe"></div>
+            <div class="form-group"><label for="password">Password</label><input type="password" id="password" name="password" required placeholder="Secure password"></div>
+            <div class="form-group"><label for="account_key">Mail360 Account Key</label><input type="text" id="account_key" name="account_key" required placeholder="e.g., AbC123XyZ789"></div>
+            <div class="form-group"><label for="email">Email Address</label><input type="email" id="email" name="email" required placeholder="john@manitec.pw"></div>
+            <button type="submit">Create User</button>
         </form>
-        <a href=\"/\" class=\"back-link\">← Back to Mail</a>
+        <a href="/" class="back-link">← Back to Mail</a>
     </div>
-
     <script>
         document.getElementById('addUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-
             const formData = new FormData();
             formData.append('username', document.getElementById('username').value);
             formData.append('password', document.getElementById('password').value);
             formData.append('account_key', document.getElementById('account_key').value);
             formData.append('email', document.getElementById('email').value);
-
             document.getElementById('success').style.display = 'none';
             document.getElementById('error').style.display = 'none';
-
             try {
-                const resp = await fetch('/admin/add-user', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const resp = await fetch('/admin/add-user', { method: 'POST', body: formData });
                 if (resp.ok) {
                     document.getElementById('success').style.display = 'block';
                     document.getElementById('addUserForm').reset();
@@ -619,7 +549,6 @@ def add_user(
     account_key: str = Form(...),
     email: str = Form(...),
 ):
-    # Only one user (ID 2) is admin
     current = get_current_user(request)
     if current["id"] != 2:
         raise HTTPException(status_code=403, detail="Admin only")
@@ -639,8 +568,7 @@ def add_user(
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT INTO users (username, password_hash, account_key, from_address) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
             (username_clean, hash_password(password), account_key_clean, email_clean),
         )
         conn.commit()
@@ -655,176 +583,71 @@ def add_user(
 def settings_page():
     return HTMLResponse(
         content="""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>Settings - Change Password | Manitec Mail</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings | Manitec Mail</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             color: #f1f5f9;
         }
-        .container {
-            background: #334155;
-            padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-            width: 100%;
-            max-width: 450px;
-            border: 1px solid #475569;
-        }
-        h1 {
-            text-align: center;
-            margin-bottom: 24px;
-            color: #3b82f6;
-            font-size: 24px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            color: #e2e8f0;
-        }
-        input {
-            width: 100%;
-            padding: 12px 16px;
-            background: #1e293b;
-            border: 1px solid #475569;
-            border-radius: 8px;
-            color: #f1f5f9;
-            font-size: 14px;
-        }
-        input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
-        button {
-            width: 100%;
-            padding: 14px;
-            background: #3b82f6;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        button:hover {
-            background: #2563eb;
-            transform: translateY(-1px);
-        }
-        .success {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid #10b981;
-            color: #10b981;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-        .error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid #ef4444;
-            color: #ef4444;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-        .back-link {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            color: #94a3b8;
-            text-decoration: none;
-            font-size: 14px;
-        }
-        .back-link:hover {
-            color: #3b82f6;
-        }
-        .warning {
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid #f59e0b;
-            color: #f59e0b;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
+        .container { background: #334155; padding: 40px; border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,.4); width: 100%; max-width: 450px; border: 1px solid #475569; }
+        h1 { text-align: center; margin-bottom: 24px; color: #3b82f6; font-size: 24px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #e2e8f0; }
+        input { width: 100%; padding: 12px 16px; background: #1e293b; border: 1px solid #475569; border-radius: 8px; color: #f1f5f9; font-size: 14px; }
+        input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+        button { width: 100%; padding: 14px; background: #3b82f6; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        button:hover { background: #2563eb; transform: translateY(-1px); }
+        .success { background: rgba(16,185,129,0.1); border: 1px solid #10b981; color: #10b981; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
+        .error { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
+        .warning { background: rgba(245,158,11,0.1); border: 1px solid #f59e0b; color: #f59e0b; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .back-link { display: block; text-align: center; margin-top: 20px; color: #94a3b8; text-decoration: none; font-size: 14px; }
+        .back-link:hover { color: #3b82f6; }
     </style>
 </head>
 <body>
-    <div class=\"container\">
-        <h1>⚙️ Change Password</h1>
-        <div class=\"warning\">You must know your current password to change it.</div>
-        <div id=\"success\" class=\"success\">Password changed successfully!</div>
-        <div id=\"error\" class=\"error\"></div>
-        <form id=\"changePasswordForm\">
-            <div class=\"form-group\">
-                <label for=\"current_password\">Current Password</label>
-                <input type=\"password\" id=\"current_password\" name=\"current_password\" required>
-            </div>
-            <div class=\"form-group\">
-                <label for=\"new_password\">New Password</label>
-                <input type=\"password\" id=\"new_password\" name=\"new_password\" required>
-            </div>
-            <div class=\"form-group\">
-                <label for=\"confirm_password\">Confirm New Password</label>
-                <input type=\"password\" id=\"confirm_password\" name=\"confirm_password\" required>
-            </div>
-            <button type=\"submit\">🔒 Change Password</button>
+    <div class="container">
+        <h1>Change Password</h1>
+        <div class="warning">You must know your current password to change it.</div>
+        <div id="success" class="success">Password changed successfully!</div>
+        <div id="error" class="error"></div>
+        <form id="changePasswordForm">
+            <div class="form-group"><label for="current_password">Current Password</label><input type="password" id="current_password" name="current_password" required autocomplete="current-password"></div>
+            <div class="form-group"><label for="new_password">New Password</label><input type="password" id="new_password" name="new_password" required autocomplete="new-password"></div>
+            <div class="form-group"><label for="confirm_password">Confirm New Password</label><input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password"></div>
+            <button type="submit">Change Password</button>
         </form>
-        <a href=\"/\" class=\"back-link\">← Back to Mail</a>
+        <a href="/" class="back-link">← Back to Mail</a>
     </div>
-
     <script>
         document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-
             const currentPassword = document.getElementById('current_password').value;
             const newPassword = document.getElementById('new_password').value;
             const confirmPassword = document.getElementById('confirm_password').value;
-
             document.getElementById('success').style.display = 'none';
             document.getElementById('error').style.display = 'none';
-
             if (newPassword !== confirmPassword) {
                 document.getElementById('error').textContent = 'New passwords do not match';
                 document.getElementById('error').style.display = 'block';
                 return;
             }
-
             const formData = new FormData();
             formData.append('current_password', currentPassword);
             formData.append('new_password', newPassword);
-
             try {
-                const resp = await fetch('/settings/change-password', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const resp = await fetch('/settings/change-password', { method: 'POST', body: formData });
                 if (resp.ok) {
                     document.getElementById('success').style.display = 'block';
                     document.getElementById('changePasswordForm').reset();
-                    setTimeout(() => {
-                        window.location.href = '/logout';
-                    }, 2000);
+                    setTimeout(() => { window.location.href = '/logout'; }, 2000);
                 } else {
                     const err = await resp.text();
                     document.getElementById('error').textContent = 'Error: ' + err;
@@ -848,14 +671,11 @@ def change_password(
     new_password: str = Form(...),
 ):
     user = get_current_user(request)
-
     if user["password_hash"] != hash_password(current_password):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
-
     ok, msg = is_strong_password(new_password)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
-
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
@@ -871,12 +691,17 @@ def change_password(
         conn.close()
 
 
+# Serve sw.js with correct MIME type so the browser registers it as a service worker
 @app.get("/static/sw.js")
 def service_worker():
     return FileResponse("static/sw.js", media_type="application/javascript")
 
 
+# Static files mount LAST — named routes above take priority.
+# index.html is gated behind /static/index.html route above.
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
