@@ -1,16 +1,24 @@
-const CACHE_NAME = 'manitec-mail-v1';
+const CACHE_VERSION = 'v2';
+const CACHE_NAME = `manitec-mail-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/static/index.html',
-  '/login',
-  '/static/manifest.json'
+  '/static/manifest.json',
+  '/static/icons/icon-192x192.png',
+  '/static/icons/icon-512x512.png',
+  '/offline'
 ];
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      // addAll fails silently per-item; use individual adds to avoid one bad URL killing all
+      return Promise.allSettled(
+        STATIC_ASSETS.map(url =>
+          cache.add(url).catch(err => console.warn(`[SW] Failed to cache ${url}:`, err))
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -30,36 +38,33 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - network first, fallback to cache, then offline page
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
+  if (event.request.method !== 'GET') return;
 
-  // Skip API calls (don't cache dynamic data)
-  if (event.request.url.includes('/inbox') || 
-      event.request.url.includes('/message') ||
-      event.request.url.includes('/send') ||
-      event.request.url.includes('/reply') ||
-      event.request.url.includes('/forward')) {
-    return;
-  }
+  // Skip API / dynamic routes — let them go straight to network
+  const dynamicRoutes = ['/inbox', '/message', '/send', '/reply', '/forward', '/api/'];
+  if (dynamicRoutes.some(route => event.request.url.includes(route))) return;
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clone the response
-        const responseToCache = response.clone();
-        
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-        
+    Promise.race([
+      fetch(event.request).then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
         return response;
-      })
-      .catch(() => {
-        return caches.match(event.request);
-      })
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+    ]).catch(() => {
+      return caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        // For navigation requests, serve offline fallback
+        if (event.request.mode === 'navigate') {
+          return caches.match('/offline') || caches.match('/');
+        }
+      });
+    })
   );
 });
