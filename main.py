@@ -35,7 +35,7 @@ _sessions: dict[str, dict] = {}
 
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
-    _sessions[token] = {"user_id": user_id, "expires_at": int(time.time()) + SESSION_TTL}
+    _sessions[token] = {"user_id": int(user_id), "expires_at": int(time.time()) + SESSION_TTL}
     _purge_expired_sessions()
     return token
 
@@ -91,13 +91,12 @@ def verify_password(password: str, stored_hash: str) -> bool:
 def migrate_to_bcrypt(user_id: int, password: str):
     new_hash = hash_password_bcrypt(password)
     conn = get_db()
-    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, str(user_id)))
     conn.commit()
     conn.close()
 
 
 def is_admin(user: dict) -> bool:
-    """True if MAIL_ADMIN env var matches this user's username."""
     return bool(MAIL_ADMIN) and user["username"].lower() == MAIL_ADMIN
 
 
@@ -106,11 +105,6 @@ def is_admin(user: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def seed_users_from_env():
-    """
-    Reads MAIL_USER_1, MAIL_USER_2, ... from environment.
-    Format: username:plaintext_password:account_key:email@domain
-    INSERT OR IGNORE — safe to run on every startup, never clobbers existing rows.
-    """
     conn = get_db()
     i = 1
     while True:
@@ -119,7 +113,7 @@ def seed_users_from_env():
             break
         parts = raw.split(":", 3)
         if len(parts) != 4:
-            print(f"⚠️  MAIL_USER_{i} malformed, skipping")
+            print(f"\u26a0\ufe0f  MAIL_USER_{i} malformed, skipping")
             i += 1
             continue
         username, password, account_key, from_address = parts
@@ -129,9 +123,9 @@ def seed_users_from_env():
                 "INSERT OR IGNORE INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
                 (username.strip().lower(), pw_hash, account_key.strip(), from_address.strip()),
             )
-            print(f"✅ Seeded user: {username.strip().lower()}")
+            print(f"\u2705 Seeded user: {username.strip().lower()}")
         except Exception as e:
-            print(f"⚠️  Could not seed MAIL_USER_{i}: {e}")
+            print(f"\u26a0\ufe0f  Could not seed MAIL_USER_{i}: {e}")
         i += 1
     conn.commit()
     conn.close()
@@ -183,11 +177,21 @@ class ForwardRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _row_to_dict(row) -> dict | None:
-    """libsql rows don't have .keys() like sqlite3.Row — convert manually."""
+    """Normalize rows from Turso (dict) and sqlite3.Row into a plain dict."""
     if row is None:
         return None
+    # Already a plain dict (Turso via db.py)
+    if isinstance(row, dict):
+        row["id"] = int(row["id"]) if row.get("id") is not None else None
+        return row
+    # sqlite3.Row
+    if hasattr(row, "keys"):
+        d = dict(row)
+        d["id"] = int(d["id"]) if d.get("id") is not None else None
+        return d
+    # Fallback: index-based tuple
     return {
-        "id": row[0],
+        "id": int(row[0]) if row[0] is not None else None,
         "username": row[1],
         "password_hash": row[2],
         "account_key": row[3],
@@ -208,9 +212,10 @@ def get_user_by_username(username: str):
 
 def get_user_by_id(user_id: int):
     conn = get_db()
+    # Pass as string too so Turso string-typed id columns match
     result = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address FROM users WHERE id = ?",
-        (user_id,),
+        (str(user_id),),
     )
     row = result.fetchone()
     conn.close()
@@ -532,7 +537,7 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
     try:
         conn.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
-            (hash_password_bcrypt(new_password), user["id"])
+            (hash_password_bcrypt(new_password), str(user["id"]))
         )
         conn.commit()
         return {"status": "password changed"}
