@@ -1,42 +1,74 @@
 """
-db.py — Turso connection layer using libsql-client (pure Python, HTTP-based).
-Falls back to local SQLite if TURSO_URL is not set (local dev).
+db.py - Turso HTTP API via httpx (no WebSockets, no Rust, works on Render free tier).
+Falls back to local SQLite when TURSO_URL is not set.
 """
 import os
 import sqlite3
+import httpx
 
-TURSO_URL = os.getenv("TURSO_URL", "")
+TURSO_URL = os.getenv("TURSO_URL", "").rstrip("/")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "")
-
 USE_TURSO = bool(TURSO_URL and TURSO_AUTH_TOKEN)
 
 
+def _turso_request(statements: list[dict]) -> list:
+    """
+    POST to Turso HTTP API.
+    statements = [{"q": "SELECT ...", "params": [...]}, ...]
+    Returns list of result sets.
+    """
+    url = f"{TURSO_URL}/v2/pipeline"
+    headers = {
+        "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    requests = [{"type": "execute", "stmt": {"sql": s["q"], "args": [
+        {"type": "text", "value": str(v)} if isinstance(v, str)
+        else {"type": "integer", "value": str(v)} if isinstance(v, int)
+        else {"type": "null"} if v is None
+        else {"type": "text", "value": str(v)}
+        for v in s.get("params", [])
+    ]}} for s in statements]
+    requests.append({"type": "close"})
+
+    resp = httpx.post(url, json={"requests": requests}, headers=headers, timeout=10)
+    resp.raise_for_status()
+    results = resp.json()["results"]
+    return results
+
+
 class TursoConnection:
-    """
-    Thin synchronous wrapper around libsql_client.
-    Mimics the sqlite3 connection interface used in main.py.
-    """
+    """sqlite3-compatible interface over Turso HTTP API."""
+
     def __init__(self):
-        import libsql_client
-        self._client = libsql_client.create_client_sync(
-            url=TURSO_URL,
-            auth_token=TURSO_AUTH_TOKEN,
-        )
+        self._pending: list[dict] = []
+        self._last_result = None
 
     def execute(self, sql: str, params: tuple = ()):
-        result = self._client.execute(sql, list(params))
-        return _TursoResult(result)
+        result = _turso_request([{"q": sql, "params": list(params)}])
+        self._last_result = result[0]
+        return _TursoResult(self._last_result)
 
     def commit(self):
-        pass  # libsql-client auto-commits each statement
+        pass  # HTTP API auto-commits
 
     def close(self):
-        self._client.close()
+        pass
 
 
 class _TursoResult:
     def __init__(self, result):
-        self._rows = result.rows
+        try:
+            response = result.get("response", {})
+            rs = response.get("result", {})
+            cols = [c["name"] for c in rs.get("cols", [])]
+            self._rows = [
+                {cols[i]: (cell.get("value") if cell.get("type") != "null" else None)
+                 for i, cell in enumerate(row)}
+                for row in rs.get("rows", [])
+            ]
+        except Exception:
+            self._rows = []
 
     def fetchone(self):
         return self._rows[0] if self._rows else None
@@ -45,21 +77,46 @@ class _TursoResult:
         return self._rows
 
 
+class SQLiteConnection:
+    """Thin wrapper so sqlite3 matches TursoConnection interface."""
+
+    def __init__(self):
+        self._conn = sqlite3.connect(os.getenv("DB_PATH", "users.db"))
+        self._conn.row_factory = sqlite3.Row
+        self._cursor = None
+
+    def execute(self, sql: str, params: tuple = ()):
+        self._cursor = self._conn.execute(sql, params)
+        return _SQLiteResult(self._cursor)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+class _SQLiteResult:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        return dict(row) if row else None
+
+    def fetchall(self):
+        return [dict(r) for r in self._cursor.fetchall()]
+
+
 def get_db():
-    """Return a connection — Turso if env vars set, else local SQLite."""
-    if USE_TURSO:
-        return TursoConnection()
-    # Local dev fallback
-    conn = sqlite3.connect(os.getenv("DB_PATH", "users.db"))
-    conn.row_factory = sqlite3.Row
-    return conn
+    return TursoConnection() if USE_TURSO else SQLiteConnection()
 
 
 def _row_to_dict(row) -> dict | None:
-    """Normalize rows from both Turso and sqlite3 into plain dicts."""
     if row is None:
         return None
-    # sqlite3.Row supports keys(); Turso rows are index-based tuples
+    if isinstance(row, dict):
+        return row
     if hasattr(row, 'keys'):
         return dict(row)
     return {
