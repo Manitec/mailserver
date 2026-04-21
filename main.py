@@ -8,13 +8,13 @@ from dotenv import load_dotenv
 import os
 import httpx
 import secrets
-import sqlite3
 import hashlib
 import time
 import bcrypt
 
 from middleware import RateLimitMiddleware
 from validators import is_valid_email, sanitize_input, is_strong_password
+from db import get_db, init_db
 
 load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -23,7 +23,6 @@ REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 MAIL_ADMIN = os.getenv("MAIL_ADMIN", "").strip().lower()
 
 BASE_URL = "https://mail360.zoho.com"
-DB_PATH = os.getenv("DB_PATH", "users.db")
 SESSION_TTL = 86400  # 24 hours
 
 app = FastAPI(title="Manitec Mail")
@@ -61,66 +60,6 @@ def _purge_expired_sessions():
     for t in expired:
         del _sessions[t]
 
-
-# ---------------------------------------------------------------------------
-# Database — users only
-# ---------------------------------------------------------------------------
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            username      TEXT    UNIQUE NOT NULL,
-            password_hash TEXT    NOT NULL,
-            account_key   TEXT    NOT NULL,
-            from_address  TEXT    NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def seed_users_from_env():
-    """
-    Reads MAIL_USER_1, MAIL_USER_2, ... from environment.
-    Format: username:plaintext_password:account_key:email@domain
-    INSERT OR IGNORE — safe to run on every startup.
-    """
-    conn = get_db()
-    i = 1
-    while True:
-        raw = os.getenv(f"MAIL_USER_{i}")
-        if not raw:
-            break
-        parts = raw.split(":", 3)
-        if len(parts) != 4:
-            print(f"⚠️  MAIL_USER_{i} malformed, skipping")
-            i += 1
-            continue
-        username, password, account_key, from_address = parts
-        pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        try:
-            conn.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
-                (username.strip().lower(), pw_hash, account_key.strip(), from_address.strip()),
-            )
-            print(f"✅ Seeded user: {username.strip().lower()}")
-        except Exception as e:
-            print(f"⚠️  Could not seed MAIL_USER_{i}: {e}")
-        i += 1
-    conn.commit()
-    conn.close()
-
-
-init_db()
-seed_users_from_env()
 
 # ---------------------------------------------------------------------------
 # Password helpers
@@ -161,6 +100,45 @@ def is_admin(user: dict) -> bool:
     """True if MAIL_ADMIN env var matches this user's username."""
     return bool(MAIL_ADMIN) and user["username"].lower() == MAIL_ADMIN
 
+
+# ---------------------------------------------------------------------------
+# DB init + seeding
+# ---------------------------------------------------------------------------
+
+def seed_users_from_env():
+    """
+    Reads MAIL_USER_1, MAIL_USER_2, ... from environment.
+    Format: username:plaintext_password:account_key:email@domain
+    INSERT OR IGNORE — safe to run on every startup, never clobbers existing rows.
+    """
+    conn = get_db()
+    i = 1
+    while True:
+        raw = os.getenv(f"MAIL_USER_{i}")
+        if not raw:
+            break
+        parts = raw.split(":", 3)
+        if len(parts) != 4:
+            print(f"⚠️  MAIL_USER_{i} malformed, skipping")
+            i += 1
+            continue
+        username, password, account_key, from_address = parts
+        pw_hash = hash_password_bcrypt(password)
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
+                (username.strip().lower(), pw_hash, account_key.strip(), from_address.strip()),
+            )
+            print(f"✅ Seeded user: {username.strip().lower()}")
+        except Exception as e:
+            print(f"⚠️  Could not seed MAIL_USER_{i}: {e}")
+        i += 1
+    conn.commit()
+    conn.close()
+
+
+init_db()
+seed_users_from_env()
 
 # ---------------------------------------------------------------------------
 # Middleware
@@ -204,24 +182,39 @@ class ForwardRequest(BaseModel):
 # User helpers
 # ---------------------------------------------------------------------------
 
+def _row_to_dict(row) -> dict | None:
+    """libsql rows don't have .keys() like sqlite3.Row — convert manually."""
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "username": row[1],
+        "password_hash": row[2],
+        "account_key": row[3],
+        "from_address": row[4],
+    }
+
+
 def get_user_by_username(username: str):
     conn = get_db()
-    row = conn.execute(
+    result = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address FROM users WHERE username = ?",
         (username,),
-    ).fetchone()
+    )
+    row = result.fetchone()
     conn.close()
-    return dict(row) if row else None
+    return _row_to_dict(row)
 
 
 def get_user_by_id(user_id: int):
     conn = get_db()
-    row = conn.execute(
+    result = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address FROM users WHERE id = ?",
         (user_id,),
-    ).fetchone()
+    )
+    row = result.fetchone()
     conn.close()
-    return dict(row) if row else None
+    return _row_to_dict(row)
 
 
 def get_current_user(request: Request):
@@ -456,9 +449,8 @@ def admin_page():
     return HTMLResponse(content="""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin | Manitec Mail</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#10b981;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#059669;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.note{background:rgba(59,130,246,0.1);border:1px solid #3b82f6;color:#93c5fd;padding:12px;border-radius:8px;margin-bottom:20px;font-size:13px}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#10b981;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#059669;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
 <body><div class="container"><h1>Add New User</h1>
-<div class="note">⚠️ Users added here persist until next redeploy. For permanent users, set <code>MAIL_USER_N</code> env vars in Render.</div>
 <div id="success" class="success">User created successfully!</div><div id="error" class="error"></div>
 <form id="addUserForm">
 <div class="form-group"><label>Username</label><input type="text" id="username" required placeholder="john.doe"></div>
@@ -498,8 +490,10 @@ def add_user(
         )
         conn.commit()
         return {"status": "user created", "username": username_clean}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already exists")
+    except Exception as e:
+        if "UNIQUE" in str(e).upper():
+            raise HTTPException(status_code=400, detail="Username already exists")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -513,9 +507,8 @@ def settings_page():
     return HTMLResponse(content="""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Settings | Manitec Mail</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#2563eb;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.warning{background:rgba(245,158,11,0.1);border:1px solid #f59e0b;color:#f59e0b;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#2563eb;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
 <body><div class="container"><h1>Change Password</h1>
-<div class="warning">⚠️ Update your <code>MAIL_USER_N</code> env var in Render after changing your password, or it will revert on next redeploy.</div>
 <div id="success" class="success">Password changed! Logging out...</div><div id="error" class="error"></div>
 <form id="changePasswordForm">
 <div class="form-group"><label>Current Password</label><input type="password" id="current_password" required autocomplete="current-password"></div>
@@ -537,7 +530,10 @@ def change_password(request: Request, current_password: str = Form(...), new_pas
         raise HTTPException(status_code=400, detail=msg)
     conn = get_db()
     try:
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password_bcrypt(new_password), user["id"]))
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password_bcrypt(new_password), user["id"])
+        )
         conn.commit()
         return {"status": "password changed"}
     except Exception as e:
