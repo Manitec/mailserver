@@ -6,17 +6,14 @@ import os
 import sqlite3
 import httpx
 
-TURSO_URL = os.getenv("TURSO_URL", "").rstrip("/")
+_raw_url = os.getenv("TURSO_URL", "").rstrip("/")
+# Turso env vars come as libsql:// — convert to https:// for HTTP API
+TURSO_URL = _raw_url.replace("libsql://", "https://") if _raw_url else ""
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "")
 USE_TURSO = bool(TURSO_URL and TURSO_AUTH_TOKEN)
 
 
 def _turso_request(statements: list[dict]) -> list:
-    """
-    POST to Turso HTTP API.
-    statements = [{"q": "SELECT ...", "params": [...]}, ...]
-    Returns list of result sets.
-    """
     url = f"{TURSO_URL}/v2/pipeline"
     headers = {
         "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
@@ -33,15 +30,11 @@ def _turso_request(statements: list[dict]) -> list:
 
     resp = httpx.post(url, json={"requests": requests}, headers=headers, timeout=10)
     resp.raise_for_status()
-    results = resp.json()["results"]
-    return results
+    return resp.json()["results"]
 
 
 class TursoConnection:
-    """sqlite3-compatible interface over Turso HTTP API."""
-
     def __init__(self):
-        self._pending: list[dict] = []
         self._last_result = None
 
     def execute(self, sql: str, params: tuple = ()):
@@ -50,7 +43,7 @@ class TursoConnection:
         return _TursoResult(self._last_result)
 
     def commit(self):
-        pass  # HTTP API auto-commits
+        pass
 
     def close(self):
         pass
@@ -78,16 +71,13 @@ class _TursoResult:
 
 
 class SQLiteConnection:
-    """Thin wrapper so sqlite3 matches TursoConnection interface."""
-
     def __init__(self):
         self._conn = sqlite3.connect(os.getenv("DB_PATH", "users.db"))
         self._conn.row_factory = sqlite3.Row
-        self._cursor = None
 
     def execute(self, sql: str, params: tuple = ()):
-        self._cursor = self._conn.execute(sql, params)
-        return _SQLiteResult(self._cursor)
+        cursor = self._conn.execute(sql, params)
+        return _SQLiteResult(cursor)
 
     def commit(self):
         self._conn.commit()
