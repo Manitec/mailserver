@@ -10,6 +10,7 @@ import httpx
 import secrets
 import sqlite3
 import hashlib
+import time
 
 from middleware import RateLimitMiddleware
 from validators import is_valid_email, sanitize_input, is_strong_password
@@ -23,12 +24,91 @@ REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 BASE_URL = "https://mail360.zoho.com"
 DB_PATH = os.getenv("DB_PATH", "users.db")
 
+SESSION_TTL = 86400  # 24 hours in seconds
+
 app = FastAPI(title="Manitec Mail")
 
-# Session storage: token -> user_id
-active_sessions: dict[str, int] = {}
+# ---------------------------------------------------------------------------
+# Database helpers
+# ---------------------------------------------------------------------------
 
-# CORS (relaxed; you can tighten allow_origins later)
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Ensure all required tables exist (safe to call on every startup)."""
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            username     TEXT    UNIQUE NOT NULL,
+            password_hash TEXT   NOT NULL,
+            account_key  TEXT    NOT NULL,
+            from_address TEXT    NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            token      TEXT    PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            expires_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+    conn.commit()
+    conn.close()
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = int(time.time()) + SESSION_TTL
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+        (token, user_id, expires_at),
+    )
+    conn.commit()
+    conn.close()
+    return token
+
+
+def get_session_user_id(token: str) -> int | None:
+    """Return user_id for a valid, non-expired token, or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?",
+        (token, int(time.time())),
+    ).fetchone()
+    conn.close()
+    return row["user_id"] if row else None
+
+
+def delete_session(token: str):
+    conn = get_db()
+    conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
+
+def purge_expired_sessions():
+    """Clean up expired rows — called after login to keep the table lean."""
+    conn = get_db()
+    conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (int(time.time()),))
+    conn.commit()
+    conn.close()
+
+
+# Run migrations on startup
+init_db()
+
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,8 +133,11 @@ app.add_middleware(
 )
 
 # NOTE: StaticFiles mount is at the BOTTOM of this file so that
-# named routes (like /static/index.html block below) take priority.
+# named routes (like the /static/index.html block below) take priority.
 
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
 
 class SendRequest(BaseModel):
     to: str
@@ -69,57 +152,47 @@ class ForwardRequest(BaseModel):
     original_content: str
 
 
+# ---------------------------------------------------------------------------
+# User / auth helpers
+# ---------------------------------------------------------------------------
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def get_user_by_username(username: str):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
+    conn = get_db()
+    row = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address "
         "FROM users WHERE username = ?",
         (username,),
-    )
-    row = cur.fetchone()
+    ).fetchone()
     conn.close()
     if not row:
         return None
-    return {
-        "id": row[0],
-        "username": row[1],
-        "password_hash": row[2],
-        "account_key": row[3],
-        "from_address": row[4],
-    }
+    return dict(row)
 
 
 def get_user_by_id(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
+    conn = get_db()
+    row = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address "
         "FROM users WHERE id = ?",
         (user_id,),
-    )
-    row = cur.fetchone()
+    ).fetchone()
     conn.close()
     if not row:
         return None
-    return {
-        "id": row[0],
-        "username": row[1],
-        "password_hash": row[2],
-        "account_key": row[3],
-        "from_address": row[4],
-    }
+    return dict(row)
 
 
 def get_current_user(request: Request):
-    session_token = request.cookies.get("session")
-    if not session_token or session_token not in active_sessions:
+    token = request.cookies.get("session")
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    user_id = active_sessions[session_token]
+    user_id = get_session_user_id(token)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
     user = get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -137,6 +210,10 @@ def get_access_token() -> str:
     resp.raise_for_status()
     return resp.json()["data"]["access_token"]
 
+
+# ---------------------------------------------------------------------------
+# Login page HTML
+# ---------------------------------------------------------------------------
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -265,6 +342,10 @@ LOGIN_HTML = """<!DOCTYPE html>
 </html>"""
 
 
+# ---------------------------------------------------------------------------
+# Auth routes
+# ---------------------------------------------------------------------------
+
 @app.get("/login")
 def login_page():
     return HTMLResponse(content=LOGIN_HTML)
@@ -277,45 +358,49 @@ def do_login(username: str = Form(...), password: str = Form(...)):
     if not user or user["password_hash"] != hash_password(password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    session_token = secrets.token_urlsafe(32)
-    active_sessions[session_token] = user["id"]
+    purge_expired_sessions()  # housekeeping — trim stale rows on each login
+    token = create_session(user["id"])
 
     response = RedirectResponse(url="/", status_code=302)
     response.set_cookie(
         key="session",
-        value=session_token,
+        value=token,
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=86400,
+        max_age=SESSION_TTL,
     )
     return response
 
 
 @app.get("/logout")
 def logout(request: Request):
-    session_token = request.cookies.get("session")
-    if session_token in active_sessions:
-        del active_sessions[session_token]
+    token = request.cookies.get("session")
+    if token:
+        delete_session(token)
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie("session")
     return response
 
 
+# ---------------------------------------------------------------------------
+# App routes
+# ---------------------------------------------------------------------------
+
 @app.get("/")
 def read_root(request: Request):
-    session_token = request.cookies.get("session")
-    if not session_token or session_token not in active_sessions:
+    token = request.cookies.get("session")
+    if not token or get_session_user_id(token) is None:
         return RedirectResponse(url="/login", status_code=302)
     return FileResponse("static/index.html")
 
 
-# Block direct access to index.html via /static/ — redirect to / which enforces auth.
-# This MUST be defined before app.mount("/static") at the bottom.
+# Block direct access to index.html via /static/ — redirect through auth.
+# MUST be defined before app.mount("/static") at the bottom.
 @app.get("/static/index.html")
 def block_static_index(request: Request):
-    session_token = request.cookies.get("session")
-    if not session_token or session_token not in active_sessions:
+    token = request.cookies.get("session")
+    if not token or get_session_user_id(token) is None:
         return RedirectResponse(url="/login", status_code=302)
     return RedirectResponse(url="/", status_code=302)
 
@@ -327,7 +412,7 @@ def get_me(request: Request):
 
 
 @app.get("/inbox")
-def get_inbox(request: Request, limit: int = 10):
+def get_inbox(request: Request, limit: int = 50):
     user = get_current_user(request)
     token = get_access_token()
     url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
@@ -431,9 +516,7 @@ def forward_message(request: Request, req: ForwardRequest):
 
     url = f"{BASE_URL}/api/accounts/{user['account_key']}/messages"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-
     full_content = f"{content}\n\n--- Forwarded message ---\n{original_content}"
-
     payload = {
         "fromAddress": user["from_address"],
         "toAddress": to_addr,
@@ -446,6 +529,10 @@ def forward_message(request: Request, req: ForwardRequest):
         return {"status": "sent"}
     raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
+
+# ---------------------------------------------------------------------------
+# Admin
+# ---------------------------------------------------------------------------
 
 @app.get("/admin")
 def admin_page():
@@ -564,10 +651,9 @@ def add_user(
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    conn = get_db()
     try:
-        cur.execute(
+        conn.execute(
             "INSERT INTO users (username, password_hash, account_key, from_address) VALUES (?, ?, ?, ?)",
             (username_clean, hash_password(password), account_key_clean, email_clean),
         )
@@ -578,6 +664,10 @@ def add_user(
     finally:
         conn.close()
 
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
 
 @app.get("/settings")
 def settings_page():
@@ -676,10 +766,9 @@ def change_password(
     ok, msg = is_strong_password(new_password)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    conn = get_db()
     try:
-        cur.execute(
+        conn.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (hash_password(new_password), user["id"]),
         )
@@ -690,6 +779,10 @@ def change_password(
     finally:
         conn.close()
 
+
+# ---------------------------------------------------------------------------
+# Static files
+# ---------------------------------------------------------------------------
 
 # Serve sw.js with correct MIME type so the browser registers it as a service worker
 @app.get("/static/sw.js")
