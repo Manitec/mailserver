@@ -20,6 +20,7 @@ load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+MAIL_ADMIN = os.getenv("MAIL_ADMIN", "").strip().lower()
 
 BASE_URL = "https://mail360.zoho.com"
 DB_PATH = os.getenv("DB_PATH", "users.db")
@@ -29,7 +30,6 @@ app = FastAPI(title="Manitec Mail")
 
 # ---------------------------------------------------------------------------
 # In-memory session store  {token: {user_id, expires_at}}
-# Honest about ephemerality — sessions die on restart, no false promises.
 # ---------------------------------------------------------------------------
 _sessions: dict[str, dict] = {}
 
@@ -63,7 +63,7 @@ def _purge_expired_sessions():
 
 
 # ---------------------------------------------------------------------------
-# Database — users only (sessions are in-memory above)
+# Database — users only
 # ---------------------------------------------------------------------------
 
 def get_db():
@@ -90,8 +90,8 @@ def init_db():
 def seed_users_from_env():
     """
     Reads MAIL_USER_1, MAIL_USER_2, ... from environment.
-    Format:  username:plaintext_password:account_key:email@domain
-    Inserts or ignores (safe to run on every startup).
+    Format: username:plaintext_password:account_key:email@domain
+    INSERT OR IGNORE — safe to run on every startup.
     """
     conn = get_db()
     i = 1
@@ -155,6 +155,11 @@ def migrate_to_bcrypt(user_id: int, password: str):
     conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
     conn.commit()
     conn.close()
+
+
+def is_admin(user: dict) -> bool:
+    """True if MAIL_ADMIN env var matches this user's username."""
+    return bool(MAIL_ADMIN) and user["username"].lower() == MAIL_ADMIN
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +355,7 @@ def block_static_index(request: Request):
 @app.get("/me")
 def get_me(request: Request):
     user = get_current_user(request)
-    return {"username": user["username"], "email": user["from_address"]}
+    return {"username": user["username"], "email": user["from_address"], "is_admin": is_admin(user)}
 
 
 @app.get("/inbox")
@@ -453,7 +458,7 @@ def admin_page():
 <title>Admin | Manitec Mail</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#10b981;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#059669;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.note{background:rgba(59,130,246,0.1);border:1px solid #3b82f6;color:#93c5fd;padding:12px;border-radius:8px;margin-bottom:20px;font-size:13px}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
 <body><div class="container"><h1>Add New User</h1>
-<div class="note">⚠️ Users added here persist until next redeploy. For permanent users, add <code>MAIL_USER_N</code> env vars in Render.</div>
+<div class="note">⚠️ Users added here persist until next redeploy. For permanent users, set <code>MAIL_USER_N</code> env vars in Render.</div>
 <div id="success" class="success">User created successfully!</div><div id="error" class="error"></div>
 <form id="addUserForm">
 <div class="form-group"><label>Username</label><input type="text" id="username" required placeholder="john.doe"></div>
@@ -475,7 +480,7 @@ def add_user(
     email: str = Form(...),
 ):
     current = get_current_user(request)
-    if current["id"] != 1:
+    if not is_admin(current):
         raise HTTPException(status_code=403, detail="Admin only")
     username_clean = sanitize_input(username, max_length=64).lower()
     account_key_clean = sanitize_input(account_key, max_length=128)
@@ -510,7 +515,7 @@ def settings_page():
 <title>Settings | Manitec Mail</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f1f5f9}.container{background:#334155;padding:40px;border-radius:16px;box-shadow:0 20px 40px rgba(0,0,0,.4);width:100%;max-width:450px;border:1px solid #475569}h1{text-align:center;margin-bottom:24px;color:#3b82f6;font-size:24px}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-size:14px;font-weight:500;color:#e2e8f0}input{width:100%;padding:12px 16px;background:#1e293b;border:1px solid #475569;border-radius:8px;color:#f1f5f9;font-size:14px}input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.2)}button{width:100%;padding:14px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}button:hover{background:#2563eb;transform:translateY(-1px)}.success{background:rgba(16,185,129,0.1);border:1px solid #10b981;color:#10b981;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#ef4444;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px;display:none}.warning{background:rgba(245,158,11,0.1);border:1px solid #f59e0b;color:#f59e0b;padding:12px;border-radius:8px;margin-bottom:20px;font-size:14px}.back-link{display:block;text-align:center;margin-top:20px;color:#94a3b8;text-decoration:none;font-size:14px}.back-link:hover{color:#3b82f6}</style></head>
 <body><div class="container"><h1>Change Password</h1>
-<div class="warning">⚠️ Password changes here are lost on redeploy. Update your <code>MAIL_USER_N</code> env var in Render too.</div>
+<div class="warning">⚠️ Update your <code>MAIL_USER_N</code> env var in Render after changing your password, or it will revert on next redeploy.</div>
 <div id="success" class="success">Password changed! Logging out...</div><div id="error" class="error"></div>
 <form id="changePasswordForm">
 <div class="form-group"><label>Current Password</label><input type="password" id="current_password" required autocomplete="current-password"></div>
