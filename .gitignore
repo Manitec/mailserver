@@ -1,7 +1,7 @@
 # Environment variables
 .env
 
-# Database
+# Database — NEVER commit; lives on Render persistent disk
 users.db
 *.db
 
