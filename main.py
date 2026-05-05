@@ -15,7 +15,13 @@ import bcrypt
 from middleware import RateLimitMiddleware
 from validators import is_valid_email, sanitize_input, is_strong_password
 from db import get_db, init_db
+from recovery_routes import router as recovery_router
+app.include_router(recovery_router)
 
+@app.get("/forgot-password")
+def forgot_password_page():
+    return FileResponse("static/forgot_password.html")
+    
 load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
