@@ -3,11 +3,11 @@
 # Password recovery endpoints — register this router in main.py
 #
 # Setup:
-#   1. Add RECOVERY_KEY to your Render env vars (a long passphrase you won't forget)
+#   1. Add RECOVERY_KEY to your Render env vars
 #   2. In main.py:
 #        from recovery_routes import router as recovery_router
 #        app.include_router(recovery_router)
-#   3. Add a route to serve the forgot-password page:
+#   3. Serve the forgot-password page:
 #        from fastapi.responses import FileResponse
 #        @app.get("/forgot-password")
 #        def forgot_password_page():
@@ -18,7 +18,7 @@ import os
 import bcrypt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from db import get_db_conn  # adjust if your db import differs
+from db import get_db
 
 router = APIRouter(prefix="/recovery", tags=["recovery"])
 
@@ -43,7 +43,7 @@ def verify_recovery(req: VerifyRequest):
     if req.recovery_key.strip() != RECOVERY_KEY:
         raise HTTPException(status_code=401, detail="Invalid username or recovery key.")
 
-    conn = get_db_conn()
+    conn = get_db()
     user = conn.execute(
         "SELECT id FROM users WHERE username = ?",
         (req.username.strip().lower(),)
@@ -63,14 +63,12 @@ def reset_password(req: ResetRequest):
 
     new_hash = bcrypt.hashpw(req.new_password.encode(), bcrypt.gensalt()).decode()
 
-    conn = get_db_conn()
-    result = conn.execute(
+    conn = get_db()
+    conn.execute(
         "UPDATE users SET password_hash = ? WHERE username = ?",
         (new_hash, req.username.strip().lower())
     )
     conn.commit()
     conn.close()
 
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="User not found.")
     return {"ok": True, "message": "Password updated successfully."}
