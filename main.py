@@ -16,12 +16,7 @@ from middleware import RateLimitMiddleware
 from validators import is_valid_email, sanitize_input, is_strong_password
 from db import get_db, init_db
 from recovery_routes import router as recovery_router
-app.include_router(recovery_router)
 
-@app.get("/forgot-password")
-def forgot_password_page():
-    return FileResponse("static/forgot_password.html")
-    
 load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
@@ -32,6 +27,11 @@ BASE_URL = "https://mail360.zoho.com"
 SESSION_TTL = 86400  # 24 hours
 
 app = FastAPI(title="Manitec Mail")
+app.include_router(recovery_router)
+
+@app.get("/forgot-password")
+def forgot_password_page():
+    return FileResponse("static/forgot_password.html")
 
 # ---------------------------------------------------------------------------
 # In-memory session store  {token: {user_id, expires_at}}
@@ -186,16 +186,13 @@ def _row_to_dict(row) -> dict | None:
     """Normalize rows from Turso (dict) and sqlite3.Row into a plain dict."""
     if row is None:
         return None
-    # Already a plain dict (Turso via db.py)
     if isinstance(row, dict):
         row["id"] = int(row["id"]) if row.get("id") is not None else None
         return row
-    # sqlite3.Row
     if hasattr(row, "keys"):
         d = dict(row)
         d["id"] = int(d["id"]) if d.get("id") is not None else None
         return d
-    # Fallback: index-based tuple
     return {
         "id": int(row[0]) if row[0] is not None else None,
         "username": row[1],
@@ -218,7 +215,6 @@ def get_user_by_username(username: str):
 
 def get_user_by_id(user_id: int):
     conn = get_db()
-    # Pass as string too so Turso string-typed id columns match
     result = conn.execute(
         "SELECT id, username, password_hash, account_key, from_address FROM users WHERE id = ?",
         (str(user_id),),
@@ -274,6 +270,8 @@ LOGIN_HTML = """<!DOCTYPE html>
         button:hover { background: #2563eb; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
         .error { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }
         .error.show { display: block; }
+        .forgot-link { display: block; text-align: center; margin-top: 16px; color: #94a3b8; font-size: 13px; text-decoration: none; }
+        .forgot-link:hover { color: #3b82f6; }
     </style>
 </head>
 <body>
@@ -285,6 +283,7 @@ LOGIN_HTML = """<!DOCTYPE html>
             <div class="form-group"><label for="password">Password</label><input type="password" id="password" name="password" required autocomplete="current-password"></div>
             <button type="submit">Sign in</button>
         </form>
+        <a href="/forgot-password" class="forgot-link">Forgot password?</a>
     </div>
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
